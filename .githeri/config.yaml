@@ -1,0 +1,6 @@
+version: 1
+specs_dir: .githeri/specs
+plans_dir: .githeri/plans
+provider: gemini
+model: default
+api_url: https://githeri.fastapicloud.dev

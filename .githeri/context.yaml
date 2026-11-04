@@ -1,0 +1,12 @@
+version: 1
+framework: unknown
+entrypoint: null
+app_var: null
+routers: []
+mounted_routers: []
+dependencies:
+  db_session: null
+  auth_guard: null
+models: {}
+test_framework: pytest
+test_command: pytest tests/

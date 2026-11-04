@@ -1,0 +1,68 @@
+# Git & VCS
+.git/
+.gitignore
+.gitattributes
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test & lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Secrets & local config
+.env
+.env.*
+
+# Frontend build & deps
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+node_modules/
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Dockerfile itself
+Dockerfile
+.dockerignore
+docker-compose*.yml

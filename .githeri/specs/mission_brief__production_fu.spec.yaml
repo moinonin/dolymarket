@@ -1,0 +1,65 @@
+task_id: prediction-market-platform
+summary: "Production Prediction Market Platform with Off-Chain CLOB, CTF Settlement Simulation, and Real-Time WebSocket Streaming"
+business_rules:
+  - name: "Dynamic Fee Calculation"
+    formula: "Fee = C * feeRate * p * (1 - p)"
+  - name: "Price Bounds & Tick Integrity"
+    formula: "0.01 <= price <= 0.99 and price % tick_size == 0"
+  - name: "Multi-User Isolation"
+    formula: "Users can view, cancel, or redeem only their own orders and positions; HTTP 403 Forbidden on unauthorized access"
+  - name: "Settlement Invariant"
+    formula: "Winning outcome token pays 1.00 USDC per share; losing outcome token pays 0.00 USDC"
+test_fixtures: []
+environment:
+  packages:
+    - "fastapi"
+    - "sqlalchemy"
+    - "pydantic"
+    - "pytest"
+    - "pytest-asyncio"
+    - "httpx"
+    - "bcrypt"
+    - "aiosqlite"
+  env_vars:
+    DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    JWT_SECRET: "test-secret-key-1234567890abcdef"
+  services: []
+global_verification:
+  - "pytest tests/"
+local_goals:
+  - id: L1
+    description: "CREATE: SQLAlchemy models for User, CollateralAccount, Event, Market, OutcomeToken, Order, TradeFill, Position, OracleDispute"
+    type: create
+    blueprint: |
+      from datetime import datetime, timezone
+      import uuid
+      from sqlalchemy import Column, String, Numeric, Integer, Boolean, DateTime, ForeignKey, JSON, Text
+      from sqlalchemy.orm import declarative_base, relationship
+
+      Base = declarative_base()
+
+      class User(Base):
+          __tablename__ = "users"
+          id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+          email = Column(String(255), unique=True, nullable=False, index=True)
+          hashed_password = Column(String(255), nullable=False)
+          api_key = Column(String(255), unique=True, nullable=True)
+          created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+      class CollateralAccount(Base):
+          __tablename__ = "collateral_accounts"
+          id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+          user_id = Column(String(36), ForeignKey("users.id"), unique=True, nullable=False, index=True)
+          balance = Column(Numeric(18, 4), default=0.0)
+          locked_balance = Column(Numeric(18, 4), default=0.0)
+          currency = Column(String(10), default="USDC")
+
+      class Event(Base):
+          __tablename__ = "events"
+          id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+          slug = Column(String(100), unique=True, nullable=False, index=True)
+          title = Column(String(255), nullable=False)
+          description = Column(Text, nullable=True)
+          category = Column(String(50), nullable=False, index=True)
+          tags = Column(JSON, default=list)
+          status = Column(String

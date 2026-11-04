@@ -1,0 +1,11 @@
+{
+  "mcp": {
+    "githeri": {
+      "type": "local",
+      "command": [
+        "githeri",
+        "mcp"
+      ]
+    }
+  }
+}
