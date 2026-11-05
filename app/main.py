@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -142,6 +142,9 @@ async def health():
 # SPA catch-all at /.
 _docs = Path(__file__).resolve().parent.parent / "site"
 if _docs.is_dir():
+    @app.get("/docs", include_in_schema=False)
+    async def _docs_redirect():
+        return RedirectResponse(url="/docs/", status_code=307)
     app.mount("/docs", StaticFiles(directory=str(_docs), html=True), name="docs")
 
 # Static frontend bundle (built via `npm run build` in frontend/).

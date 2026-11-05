@@ -191,7 +191,7 @@ function Nav({
 
         <div className="flex items-center gap-2">
           <a
-            href={import.meta.env.VITE_DOCS_URL || '/docs'}
+            href={import.meta.env.VITE_DOCS_URL || '/docs/'}
             target="_blank"
             rel="noopener noreferrer"
             title="Documentation"
