@@ -165,18 +165,18 @@ function Nav({
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6">
         <button
           onClick={() => onNavigate(user ? 'markets' : 'home')}
-          className="flex items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
+          className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
         >
           <BarChart3 className="h-5 w-5 text-emerald-400" />
           DolyMarket
         </button>
 
-        <div className="flex items-center gap-1">
+        <div className="mx-2 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {items.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => onNavigate(key)}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 activeSection === key
                   ? 'bg-slate-800 text-white'
                   : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
