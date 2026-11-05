@@ -566,6 +566,49 @@ export class ApiClient {
     return this.request(`/api/v1/copy-jobs${qs ? '?' + qs : ''}`);
   }
 
+  // ---- DexBuilder parity / extended prediction surfaces --------------------
+  listTags(): Promise<{ tags: string[] }> {
+    return this.request('/api/v4/prediction/tags', {}, false);
+  }
+  getMarketBySlug(slug: string): Promise<any> {
+    return this.request(`/api/v4/prediction/markets/slug/${encodeURIComponent(slug)}`, {}, false);
+  }
+  getBulkPrices(ids: string[]): Promise<{ prices: Record<string, number | null> }> {
+    return this.request(`/api/v4/prediction/tokens/prices?ids=${encodeURIComponent(ids.join(','))}`, {}, false);
+  }
+  getUserTrades(): Promise<{ trades: any[] }> {
+    return this.request('/api/v4/prediction/usertrades');
+  }
+  getSettledPositions(): Promise<{ positions: any[] }> {
+    return this.request('/api/v4/prediction/positions/settled');
+  }
+  getDexBuilderMarkets(params: { status?: string; category?: string; limit?: number } = {}): Promise<any> {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.category) q.set('category', params.category);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request(`/api/v4/dexbuilder/markets${qs ? '?' + qs : ''}`, {}, false);
+  }
+  getDexBuilderTags(): Promise<any> {
+    return this.request('/api/v4/dexbuilder/tags', {}, false);
+  }
+  getDexBuilderOrderBook(tokenId: string): Promise<any> {
+    return this.request(`/api/v4/dexbuilder/tokens/${encodeURIComponent(tokenId)}/order_book`, {}, false);
+  }
+  getDexBuilderPriceHistory(tokenId: string, interval = '1h', fromMs?: number, toMs?: number): Promise<any> {
+    const q = new URLSearchParams({ interval });
+    if (fromMs != null) q.set('from', String(fromMs));
+    if (toMs != null) q.set('to', String(toMs));
+    return this.request(`/api/v4/dexbuilder/tokens/${encodeURIComponent(tokenId)}/price_history?${q.toString()}`, {}, false);
+  }
+  getDexBuilderCandlesticks(tokenId: string): Promise<any> {
+    return this.request(`/api/v4/dexbuilder/tokens/${encodeURIComponent(tokenId)}/candlesticks`, {}, false);
+  }
+  getDexBuilderTime(): Promise<{ server_time: number }> {
+    return this.request('/api/v4/dexbuilder/time', {}, false);
+  }
+
   // ---- Positions -----------------------------------------------------------
 
   listPositions(settlementStatus?: 'OPEN' | 'SETTLED'): Promise<{ positions: Position[] }> {

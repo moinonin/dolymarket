@@ -23,6 +23,8 @@ from app.api.v4 import positions as positions_router
 from app.api.v4 import public as public_router
 from app.api.v4 import resolution as resolution_router
 from app.api.v4 import ws as ws_router
+from app.api.v4.dexbuilder import proxy as dexbuilder_proxy_router
+from app.api.v4.prediction import extended as prediction_extended_router
 from app.core.ratelimit import (
     AUTH_CAPACITY,
     AUTH_RATE,
@@ -122,6 +124,8 @@ app.include_router(positions_router.router)
 app.include_router(resolution_router.router)
 app.include_router(admin_router.router)
 app.include_router(ws_router.router)
+app.include_router(prediction_extended_router.router)
+app.include_router(dexbuilder_proxy_router.router)
 
 
 @app.get("/api/health")

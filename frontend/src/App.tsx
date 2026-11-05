@@ -8,6 +8,7 @@ import {
   LogIn,
   LogOut,
   ShieldCheck,
+  Tag,
   TrendingUp,
   UserPlus,
 } from 'lucide-react'
@@ -22,6 +23,10 @@ import PortfolioPage from './pages/PortfolioPage'
 import ResolutionPage from './pages/ResolutionPage'
 import DesksPage from './pages/DesksPage'
 import DeskDetailPage from './pages/DeskDetailPage'
+import TagsPage from './pages/TagsPage'
+import UserTradesPage from './pages/UserTradesPage'
+import SettledPositionsPage from './pages/SettledPositionsPage'
+import MarketDetailPage from './pages/MarketDetailPage'
 
 // Tiny hash router — path segments after '#'.
 function useHashRoute(): [string[], (to: string) => void] {
@@ -83,6 +88,14 @@ function Shell() {
     )
   } else if (section === 'desks') {
     page = <DesksPage onOpenDesk={(id) => navigate(`desks/${id}`)} />
+  } else if (section === 'tags') {
+    page = <TagsPage />
+  } else if (section === 'trades') {
+    page = <UserTradesPage />
+  } else if (section === 'settled') {
+    page = <SettledPositionsPage />
+  } else if (section === 'market' && route[1]) {
+    page = <MarketDetailPage marketId={route[1]} onBack={() => navigate('markets')} />
   } else if (section === 'event' && route[1]) {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
   } else if (section === 'portfolio') {
@@ -118,6 +131,9 @@ function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) 
 const NAV_ITEMS = [
   { key: 'markets', label: 'Markets', icon: LineChart },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
+  { key: 'tags', label: 'Tags', icon: Tag },
+  { key: 'trades', label: 'Trades', icon: TrendingUp },
+  { key: 'settled', label: 'Settled', icon: Briefcase },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'resolution', label: 'Resolution', icon: Gavel },
 ]
@@ -126,6 +142,7 @@ const ANON_NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'markets', label: 'Markets', icon: LineChart },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
+  { key: 'tags', label: 'Tags', icon: Tag },
 ]
 
 function Nav({

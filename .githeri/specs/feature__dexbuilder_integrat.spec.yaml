@@ -1,0 +1,136 @@
+task_id: "dexbuilder-integration-parity"
+status: planned
+summary: "Implement DexBuilder API parity, server-side proxy client, and missing prediction surfaces locally."
+business_rules:
+  - name: "Decimal Precision"
+    formula: "All money, price, and share values must use Decimal/Numeric(18,4)."
+  - name: "DexBuilder Proxy Auth"
+    formula: "Requests to DexBuilder use HMAC-SHA256 signing if DEXBUILDER_API_SECRET is provided."
+  - name: "Access Control"
+    formula: "Private routes (orders, positions, trades) must return 401 if unauthenticated and 403 if accessing other users' data."
+  - name: "Proxy Fallback"
+    formula: "Return 503 DEXBUILDER_NOT_CONFIGURED if proxy routes are called without an API key."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "sqlalchemy", "pydantic", "httpx", "pytest", "pytest-asyncio"]
+  env_vars:
+    DEXBUILDER_API_BASE: "https://api.dexbuilder.com"
+    DEXBUILDER_API_KEY: "test_key"
+    DEXBUILDER_API_SECRET: "test_secret"
+  services: []
+global_verification:
+  - "pytest tests/test_dexbuilder_parity.py"
+  - "pytest tests/test_bulk_prices.py"
+local_goals:
+  - id: L1
+    description: "CREATE: DexBuilder server-side client with HMAC signing"
+    type: create
+    blueprint: |
+      import hmac, hashlib, time, httpx
+      from decimal import Decimal
+      from pydantic import BaseSettings
+
+      class DexBuilderConfig(BaseSettings):
+          api_base: str = "https://api.dexbuilder.com"
+          api_key: str = ""
+          api_secret: str = ""
+          enabled: bool = False
+
+      class DexBuilderClient:
+          def __init__(self, config: DexBuilderConfig):
+              self.config = config
+          
+          def _sign(self, method: str, path: str, body: str = ""):
+              timestamp = str(int(time.time()))
+              msg = f"{timestamp}{method.upper()}{path}{body}"
+              signature = hmac.new(
+                  self.config.api_secret.encode(),
+                  msg.encode(),
+                  hashlib.sha256
+              ).hexdigest()
+              return {"X-DB-KEY": self.config.api_key, "X-DB-SIGN": signature, "X-DB-TIMESTAMP": timestamp}
+
+          async def get_markets(self):
+              async with httpx.AsyncClient() as client:
+                  resp = await client.get(f"{self.config.api_base}/api/v4/prediction/markets")
+                  return resp.json()
+    verification:
+      type: content
+      path: "app/services/dexbuilder.py"
+      expect:
+        content_contains: "DexBuilderClient"
+  - id: L2
+    description: "CREATE: Missing prediction routes (Tags, Bulk Prices, User Trades)"
+    type: create
+    blueprint: |
+      from fastapi import APIRouter, Depends, HTTPException, Query
+      from typing import List
+      from decimal import Decimal
+      from app.models.domain import Market, TradeFill
+      
+      router = APIRouter(prefix="/api/v4/prediction")
+
+      @router.get("/tags")
+      async def get_tags():
+          # Mock implementation for blueprint; real one queries distinct tags
+          return ["Politics", "Crypto", "Sports"]
+
+      @router.get("/tokens/prices")
+      async def get_bulk_prices(ids: List[int] = Query(...)):
+          if not ids:
+              raise HTTPException(status_code=422, detail="ids required")
+          return {tid: Decimal("1.0000") for tid in ids}
+
+      @router.get("/usertrades")
+      async def get_user_trades(current_user=None):
+          if not current_user: raise HTTPException(status_code=401)
+          return []
+    verification:
+      type: content
+      path: "app/api/v4/prediction/extended.py"
+      expect:
+        content_contains: "get_bulk_prices"
+  - id: L3
+    description: "CREATE: DexBuilder Proxy Router"
+    type: create
+    blueprint: |
+      from fastapi import APIRouter, HTTPException, Depends
+      from app.services.dexbuilder import DexBuilderClient, DexBuilderConfig
+
+      proxy_router = APIRouter(prefix="/api/v4/dexbuilder")
+
+      def get_db_client():
+          cfg = DexBuilderConfig()
+          if not cfg.api_key:
+              raise HTTPException(status_code=503, detail="DEXBUILDER_NOT_CONFIGURED")
+          return DexBuilderClient(cfg)
+
+      @proxy_router.get("/markets")
+      async def proxy_markets(client: DexBuilderClient = Depends(get_db_client)):
+          return await client.get_markets()
+    verification:
+      type: content
+      path: "app/api/v4/dexbuilder/proxy.py"
+      expect:
+        content_contains: "proxy_markets"
+  - id: L4
+    description: "VERIFY: Bulk prices endpoint returns 200 for valid IDs"
+    verification:
+      type: http
+      method: GET
+      url: "http://localhost:8000/api/v4/prediction/tokens/prices?ids=1&ids=2"
+      expect:
+        status: 200
+  - id: L5
+    description: "VERIFY: Proxy returns 503 when API key is missing"
+    verification:
+      type: http
+      method: GET
+      url: "http://localhost:8000/api/v4/dexbuilder/markets"
+      expect:
+        status: 503
+context:
+  language: Python
+  framework: FastAPI
+  orm: SQLAlchemy
+  test_framework: pytest

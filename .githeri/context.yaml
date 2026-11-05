@@ -11,6 +11,10 @@ routers:
   module: app.api.v1.passkey
   vars:
   - router
+- file: app/api/v1/desks.py
+  module: app.api.v1.desks
+  vars:
+  - router
 - file: app/api/v1/collateral.py
   module: app.api.v1.collateral
   vars:
@@ -49,6 +53,10 @@ mounted_routers:
   tags: []
   file: app/main.py
 - router: collateral_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: desks_router.router
   prefix: ''
   tags: []
   file: app/main.py
@@ -103,16 +111,25 @@ models:
   PasskeyCredential: app.models.domain:PasskeyCredential
   PasskeyChallenge: app.models.domain:PasskeyChallenge
   AuthExchangeCode: app.models.domain:AuthExchangeCode
+  Desk: app.models.domain:Desk
+  DeskFollower: app.models.domain:DeskFollower
+  DeskPosition: app.models.domain:DeskPosition
+  CopyJob: app.models.domain:CopyJob
   RegisterRequest: app.api.v1.auth:RegisterRequest
   LoginRequest: app.api.v1.auth:LoginRequest
   TokenResponse: app.api.v1.auth:TokenResponse
   PasskeyVerifyRequest: app.api.v1.passkey:PasskeyVerifyRequest
+  CreateDeskRequest: app.api.v1.desks:CreateDeskRequest
+  UpdateDeskRequest: app.api.v1.desks:UpdateDeskRequest
+  RejectRequest: app.api.v1.desks:RejectRequest
+  FollowRequest: app.api.v1.desks:FollowRequest
   AmountRequest: app.api.v1.collateral:AmountRequest
   ExchangeRequest: app.api.v1.oauth:ExchangeRequest
   CreateOrderRequest: app.api.v4.orders:CreateOrderRequest
   SplitRequest: app.api.v4.positions:SplitRequest
   CreateEventRequest: app.api.v4.admin:CreateEventRequest
   CreateMarketRequest: app.api.v4.admin:CreateMarketRequest
+  RejectDeskRequest: app.api.v4.admin:RejectDeskRequest
   ProposeRequest: app.api.v4.resolution:ProposeRequest
   DisputeRequest: app.api.v4.resolution:DisputeRequest
   FinalizeRequest: app.api.v4.resolution:FinalizeRequest
@@ -121,5 +138,5 @@ test_command: pytest tests/
 source_dirs:
 - app
 - predmarket
-_fingerprint: b3d7401a703f4996
-_scanned_at: 1793830675.6440818
+_fingerprint: 5c11c6fd7e294119
+_scanned_at: 1793878626.596421
