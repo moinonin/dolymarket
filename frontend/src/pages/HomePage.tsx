@@ -88,15 +88,15 @@ export default function HomePage({
     <div className="mx-auto w-full max-w-7xl px-6 pb-24">
       {/* Hero */}
       <section className="relative overflow-hidden pt-16 pb-14">
-        <div className="pointer-events-none absolute -top-40 left-1/2 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -top-40 left-1/2 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl" />
         <div className="relative text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-[11px] font-medium text-cyan-300">
             <Sparkles className="h-3 w-3" />
             Trade the probability, not the narrative
           </span>
           <h1 className="mx-auto mt-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
             Prediction markets with a{' '}
-            <span className="text-emerald-400">real matching engine</span>
+            <span className="text-cyan-400">real matching engine</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
             Dolymarket runs an in-memory central limit order book with price-time
@@ -107,13 +107,13 @@ export default function HomePage({
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => onOpenAuth('register')}
-              className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+              className="rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400"
             >
               Create free account
             </button>
             <button
               onClick={onBrowseMarkets}
-              className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white"
+              className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/40 hover:text-white"
             >
               Browse live markets
             </button>
@@ -141,7 +141,7 @@ export default function HomePage({
         <div className="mb-4 flex items-end justify-between gap-4">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-semibold text-white">
-              <Activity className="h-5 w-5 text-emerald-400" />
+              <Activity className="h-5 w-5 text-cyan-400" />
               Markets trading right now
             </h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -150,7 +150,7 @@ export default function HomePage({
           </div>
           <button
             onClick={onBrowseMarkets}
-            className="text-xs font-medium text-emerald-400 transition hover:text-emerald-300"
+            className="text-xs font-medium text-cyan-400 transition hover:text-cyan-300"
           >
             View all →
           </button>
@@ -213,9 +213,9 @@ export default function HomePage({
           {FEATURES.map((f) => (
             <div
               key={f.title}
-              className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 transition hover:border-emerald-500/30"
+              className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 transition hover:border-cyan-500/30"
             >
-              <f.icon className="h-5 w-5 text-emerald-400" />
+              <f.icon className="h-5 w-5 text-cyan-400" />
               <h3 className="mt-3 text-sm font-semibold text-white">{f.title}</h3>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
                 {f.body}
@@ -232,7 +232,7 @@ export default function HomePage({
             key={step.title}
             className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5"
           >
-            <span className="font-mono text-xs font-bold text-emerald-400">
+            <span className="font-mono text-xs font-bold text-cyan-400">
               STEP {i + 1}
             </span>
             <h3 className="mt-2 text-sm font-semibold text-white">{step.title}</h3>
@@ -244,11 +244,11 @@ export default function HomePage({
       </section>
 
       {/* Security */}
-      <section className="mt-20 overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/60 to-emerald-950/30 p-8">
+      <section className="mt-20 overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/60 to-cyan-950/30 p-8">
         <div className="grid items-center gap-8 lg:grid-cols-2">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-semibold text-white">
-              <ShieldCheck className="h-5 w-5 text-emerald-400" />
+              <ShieldCheck className="h-5 w-5 text-cyan-400" />
               Sign in the way you prefer
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
@@ -259,24 +259,24 @@ export default function HomePage({
             </p>
             <ul className="mt-4 space-y-2 text-xs text-slate-400">
               <li className="flex items-center gap-2">
-                <Fingerprint className="h-3.5 w-3.5 text-emerald-400" />
+                <Fingerprint className="h-3.5 w-3.5 text-cyan-400" />
                 WebAuthn passkeys with sign-counter clone detection
               </li>
               <li className="flex items-center gap-2">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" />
                 OAuth 2.0 authorization-code flow with one-time token exchange
               </li>
               <li className="flex items-center gap-2">
-                <Radio className="h-3.5 w-3.5 text-emerald-400" />
+                <Radio className="h-3.5 w-3.5 text-cyan-400" />
                 Rate-limited sign-in and order endpoints
               </li>
             </ul>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <MiniStat icon={<TrendingUp className="h-4 w-4 text-emerald-400" />} label="Fee model" value="C × r × p × (1−p)" />
-            <MiniStat icon={<Coins className="h-4 w-4 text-emerald-400" />} label="Settlement" value="$1.00 / share" />
-            <MiniStat icon={<Keyboard className="h-4 w-4 text-emerald-400" />} label="Hotkeys" value="B · S · ⏎ · Esc" />
-            <MiniStat icon={<Percent className="h-4 w-4 text-emerald-400" />} label="Settlement" value="CTF style" />
+            <MiniStat icon={<TrendingUp className="h-4 w-4 text-cyan-400" />} label="Fee model" value="C × r × p × (1−p)" />
+            <MiniStat icon={<Coins className="h-4 w-4 text-cyan-400" />} label="Settlement" value="$1.00 / share" />
+            <MiniStat icon={<Keyboard className="h-4 w-4 text-cyan-400" />} label="Hotkeys" value="B · S · ⏎ · Esc" />
+            <MiniStat icon={<Percent className="h-4 w-4 text-cyan-400" />} label="Settlement" value="CTF style" />
           </div>
         </div>
       </section>
@@ -293,13 +293,13 @@ export default function HomePage({
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={() => onOpenAuth('register')}
-            className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+            className="rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-cyan-400"
           >
             Create free account
           </button>
           <button
             onClick={() => onOpenAuth('login')}
-            className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white"
+            className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/40 hover:text-white"
           >
             I already have an account
           </button>
@@ -402,19 +402,19 @@ function MarketPreviewCard({
   return (
     <button
       onClick={() => onOpen(event.slug)}
-      className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
+      className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left transition hover:border-cyan-500/40 hover:bg-slate-900"
     >
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
           {event.category}
         </span>
         {ticker?.price != null && (
-          <span className="font-mono text-sm font-semibold text-emerald-400">
+          <span className="font-mono text-sm font-semibold text-cyan-400">
             {(ticker.price * 100).toFixed(0)}¢
           </span>
         )}
       </div>
-      <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white transition group-hover:text-emerald-300">
+      <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white transition group-hover:text-cyan-300">
         {event.title}
       </h3>
       <div className="mt-3">
@@ -424,7 +424,7 @@ function MarketPreviewCard({
         />
       </div>
       <div className="mt-2 flex items-center justify-between text-[10px] font-medium text-slate-500">
-        <span className="text-emerald-400">
+        <span className="text-cyan-400">
           {ticker?.symbol ?? 'YES'}{' '}
           {ticker?.price != null
             ? `${(ticker.price * 100).toFixed(0)}%`

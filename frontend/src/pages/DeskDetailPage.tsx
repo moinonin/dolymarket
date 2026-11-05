@@ -121,7 +121,7 @@ export default function DeskDetailPage({
 
           <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
+              <TrendingUp className="h-4 w-4 text-cyan-400" />
               Track record
             </h2>
             <p className="mt-1 text-[10px] text-slate-500">
@@ -138,7 +138,7 @@ export default function DeskDetailPage({
               <p className="text-sm text-slate-300">Sign in to follow this desk.</p>
               <button
                 onClick={() => openAuth('login')}
-                className="mt-3 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-400"
+                className="mt-3 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400"
               >
                 Sign in
               </button>
@@ -146,7 +146,7 @@ export default function DeskDetailPage({
           ) : isOwner ? (
             <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                <ShieldCheck className="h-4 w-4 text-cyan-400" />
                 Manage desk
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -154,7 +154,7 @@ export default function DeskDetailPage({
                   <button
                     onClick={submit}
                     disabled={acting}
-                    className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+                    className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-40"
                   >
                     {acting ? 'Working…' : 'Submit for review'}
                   </button>
@@ -203,7 +203,7 @@ export default function DeskDetailPage({
                 <button
                   onClick={follow}
                   disabled={acting}
-                  className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+                  className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-40"
                 >
                   {acting ? 'Working…' : 'Follow desk'}
                 </button>

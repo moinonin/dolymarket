@@ -83,7 +83,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
       {user && (
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <ShieldCheck className="h-4 w-4 text-cyan-400" />
             Your desk
           </h2>
           {myDesk ? (
@@ -93,7 +93,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
               positions, ROI {(myDesk.track_record?.roi_pct ?? 0).toFixed(2)}%.
               <button
                 onClick={() => onOpenDesk(myDesk.id)}
-                className="ml-3 text-emerald-400 underline underline-offset-2"
+                className="ml-3 text-cyan-400 underline underline-offset-2"
               >
                 Open
               </button>
@@ -102,7 +102,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
             <button
               onClick={createDesk}
               disabled={creating}
-              className="mt-3 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+              className="mt-3 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-40"
             >
               {creating ? 'Creating…' : 'Create a desk'}
             </button>
@@ -113,7 +113,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
       <section className="mt-6">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-            <TrendingUp className="h-4 w-4 text-emerald-400" />
+            <TrendingUp className="h-4 w-4 text-cyan-400" />
             Leaderboard
           </h2>
           <select
@@ -159,9 +159,9 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
               <button
                 key={d.id}
                 onClick={() => onOpenDesk(d.id)}
-                className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
+                className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left transition hover:border-cyan-500/40 hover:bg-slate-900"
               >
-                <h3 className="text-sm font-semibold text-white transition group-hover:text-emerald-300">
+                <h3 className="text-sm font-semibold text-white transition group-hover:text-cyan-300">
                   {d.name}
                 </h3>
                 {d.description && (
@@ -170,7 +170,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-slate-500">ROI</div>
-                    <div className="mt-0.5 font-mono text-sm font-semibold text-emerald-400">
+                    <div className="mt-0.5 font-mono text-sm font-semibold text-cyan-400">
                       {d.roi_pct.toFixed(2)}%
                     </div>
                   </div>

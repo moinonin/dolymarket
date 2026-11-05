@@ -58,7 +58,7 @@ export default function MarketDetailPage({ marketId, onBack }: { marketId: strin
             {(market.tokens || []).map((t: any) => (
               <div key={t.token_id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                 <div className="text-xs text-slate-400">{t.symbol}</div>
-                <div className="mt-1 font-mono text-lg font-semibold text-emerald-400">
+                <div className="mt-1 font-mono text-lg font-semibold text-cyan-400">
                   {prices && prices[t.token_id] != null ? Number(prices[t.token_id]).toFixed(4) : '—'}
                 </div>
               </div>
@@ -79,7 +79,7 @@ export default function MarketDetailPage({ marketId, onBack }: { marketId: strin
                 <div>
                   <div className="mb-1 text-slate-500">Bids</div>
                   {(book.bids || []).slice(0, 5).map((b: any, i: number) => (
-                    <div key={i} className="flex justify-between font-mono text-emerald-300">
+                    <div key={i} className="flex justify-between font-mono text-cyan-300">
                       <span>{b.price}</span><span>{b.size}</span>
                     </div>
                   ))}
