@@ -62,6 +62,9 @@ data/
 
 # Frontend / Node
 frontend/node_modules/
+
+# MkDocs build output
+site/
 frontend/dist/
 frontend/.vite/
 frontend/tsconfig.tsbuildinfo

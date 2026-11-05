@@ -1,0 +1,48 @@
+site_name: Dolymarket
+site_description: Prediction market platform — CLOB, CTF settlement, real-time streaming.
+site_url: https://dolymarket.example.com
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: emerald
+      accent: emerald
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+nav:
+  - Home: index.md
+  - Getting started:
+    - Quickstart: getting-started/quickstart.md
+    - Concepts: getting-started/concepts.md
+    - Roles & permissions: getting-started/roles.md
+  - Trading:
+    - Place an order: trading/place-order.md
+    - Order lifecycle: trading/order-lifecycle.md
+    - Fees: trading/fees.md
+    - Hotkeys: trading/hotkeys.md
+  - Markets & data:
+    - Discover markets: markets/discover.md
+    - Market details: markets/market-details.md
+    - Prices & order book: markets/prices-orderbook.md
+    - Real-time data: markets/realtime.md
+  - Portfolio:
+    - Positions: portfolio/positions.md
+    - Settled positions: portfolio/settled.md
+    - Collateral: portfolio/collateral.md
+  - Resolution: resolution.md
+  - Pro Desks: pro-desks.md
+  - Authentication: auth.md
+  - Do's and don'ts: do-dont.md
+  - Disclaimers: disclaimers.md
+  - API reference: api-reference.md
+  - FAQ: faq.md
+  - Engineering:
+    - Improvement plan: improve.md
+    - Pro Desks prompt: prediction-vault-prompt.md
+    - DexBuilder integration prompt: dexbuilder-integration-prompt.md
+    - DexBuilder TODO: dexbuilder-todo.md
