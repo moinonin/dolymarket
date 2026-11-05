@@ -102,6 +102,10 @@ app = FastAPI(
     description="Dolymarket prediction markets: in-memory CLOB, CTF settlement, real-time streaming.",
     version="4.1.0",
     lifespan=lifespan,
+    # Swagger/ReDoc move under /api so /docs can serve the markdown site.
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/openapi.json",
 )
 
 app.add_middleware(
