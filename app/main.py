@@ -137,3 +137,8 @@ async def health():
 _dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _dist.is_dir():
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="static")
+
+# Documentation site (built via `mkdocs build` in the repo root).
+_docs = Path(__file__).resolve().parent.parent / "site"
+if _docs.is_dir():
+    app.mount("/docs", StaticFiles(directory=str(_docs), html=True), name="docs")

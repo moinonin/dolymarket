@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import {
   BarChart3,
+  BookOpen,
   Briefcase,
   Gavel,
   Home,
@@ -189,6 +190,15 @@ function Nav({
         </div>
 
         <div className="flex items-center gap-2">
+          <a
+            href={import.meta.env.VITE_DOCS_URL || '/docs'}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Documentation"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
+          >
+            <BookOpen className="h-3 w-3" /> Docs
+          </a>
           {user ? (
             <>
               <span className="hidden items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1 text-[11px] text-slate-300 sm:flex">
