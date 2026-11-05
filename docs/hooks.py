@@ -14,5 +14,12 @@ def on_post_build(config, **kwargs):
             text = css_file.read_text(encoding="utf-8")
         except OSError:
             continue
+        changed = False
         if "#4051b5" in text:
-            css_file.write_text(text.replace("#4051b5", "#00d492"), encoding="utf-8")
+            text = text.replace("#4051b5", "#00d492")
+            changed = True
+        if "#526cfe" in text:
+            text = text.replace("#526cfe", "#00d492")
+            changed = True
+        if changed:
+            css_file.write_text(text, encoding="utf-8")

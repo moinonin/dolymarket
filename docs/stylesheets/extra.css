@@ -1,14 +1,26 @@
-/* Brand override: replace the indigo primary (#4051b5) with the Dolymarket teal. */
+/* Brand override: replace the indigo primary (#4051b5) and accent (#526cfe)
+   with the Dolymarket teal. */
 :root,
 [data-md-color-primary] {
   --md-primary-fg-color: #00d492 !important;
   --md-primary-fg-color--light: #33ddb0 !important;
   --md-primary-fg-color--dark: #00a870 !important;
+  --md-accent-fg-color: #00d492 !important;
+  --md-accent-fg-color--transparent: #00d4921a !important;
   --md-typeset-a-color: #00d492 !important;
 }
 
 .md-typeset a {
   color: #00d492;
+}
+
+/* Navbar items in pure cloud white so they stand out. */
+.md-header__title,
+.md-header__topic,
+.md-tabs__link,
+.md-nav__link,
+.md-header__button {
+  color: #ffffff !important;
 }
 
 .md-header {
