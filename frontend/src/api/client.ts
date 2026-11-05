@@ -162,6 +162,21 @@ export interface LiveStatus {
   consecutive_failures: number;
 }
 
+/** Credential diagnostic for the upstream DexBuilder integration. */
+export interface LiveAuthStatus {
+  configured: boolean;
+  key_present: boolean;
+  secret_present: boolean;
+  scheme: string;
+  headers: string[];
+  authenticated: boolean;
+  upstream: {
+    status: number | null;
+    label: string;
+    message: string;
+  } | null;
+}
+
 export interface Order {
   id: string | null;
   market_id: string;
@@ -684,6 +699,9 @@ export class ApiClient {
 
   getLiveStatus(): Promise<LiveStatus> {
     return this.request('/api/v4/prediction/live/status', {}, false);
+  }
+  getLiveAuth(): Promise<LiveAuthStatus> {
+    return this.request('/api/v4/prediction/live/auth', {}, false);
   }
   getLiveMarkets(
     params: { status?: string; category?: string; limit?: number; offset?: number } = {}

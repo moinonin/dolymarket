@@ -29,6 +29,8 @@ CACHE_TTL_SECONDS = 10.0
 FAILURE_THRESHOLD = 3
 #: Seconds the circuit stays open before a probe is allowed through.
 CIRCUIT_OPEN_SECONDS = 30.0
+#: Seconds a credential diagnostic stays fresh.
+AUTH_DIAGNOSTIC_TTL_SECONDS = 30.0
 #: Upstream allows at most 14 days of price history per request.
 MAX_HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
@@ -371,6 +373,20 @@ class LiveMarketFeed:
             "circuit_open": time.monotonic() < self._circuit_open_until,
             "consecutive_failures": self._failures,
         }
+
+    async def check_credentials(self) -> dict:
+        """Credential diagnostic, cached briefly so polling stays cheap.
+
+        The payload never contains the API key or the API secret; it reports
+        whether a credential is configured and how the upstream answered.
+        """
+        now = time.monotonic()
+        cached = self._cache.get("auth:diagnostic")
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        result = await self.client.check_credentials()
+        self._cache["auth:diagnostic"] = (now + AUTH_DIAGNOSTIC_TTL_SECONDS, result)
+        return result
 
     async def _fetch(self, key: str, factory: Callable[[], Awaitable[Any]]) -> Any:
         now = time.monotonic()

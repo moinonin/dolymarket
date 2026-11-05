@@ -27,6 +27,17 @@ async def live_status(feed: LiveMarketFeed = Depends(get_live_feed)):
     return feed.status()
 
 
+@router.get("/live/auth")
+async def live_auth(feed: LiveMarketFeed = Depends(get_live_feed)):
+    """Report whether the upstream accepts the configured credentials.
+
+    The payload never contains the API key or the API secret: it reports
+    whether a credential is configured, the signing scheme in use and how the
+    upstream answered the signed probe.
+    """
+    return await feed.check_credentials()
+
+
 @router.get("/live/markets")
 async def live_markets(
     status: str | None = Query(default="active"),

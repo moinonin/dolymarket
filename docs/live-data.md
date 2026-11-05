@@ -64,6 +64,31 @@ back with **Older →**; resolved cards show the outcome that won.
 `GET /api/v4/prediction/live/status` reports the integration state (upstream URL,
 cache size, circuit breaker).
 
+## Credentialed upstream reads
+
+Account data (positions, user trades, assets, account book, fees, claims) is
+read from the same upstream through the signed proxy namespace
+`/api/v4/dexbuilder/*`. Those requests use the official HMAC-SHA512 scheme —
+see [DexBuilder authentication](dexbuilder-auth.md).
+
+`GET /api/v4/prediction/live/auth` reports whether the upstream accepts the
+configured credential (it never returns the key or the secret), and the Live
+page shows the same state as an **Auth** badge:
+
+```json
+{
+  "configured": true,
+  "scheme": "HMAC-SHA512",
+  "authenticated": false,
+  "upstream": { "status": 401, "label": "INVALID_KEY", "message": "Invalid key provided" }
+}
+```
+
+A rejected credential surfaces locally as HTTP 502
+`DEXBUILDER_UPSTREAM_UNAUTHORIZED`, with the upstream label in the
+`X-Upstream-Error` header. Public market data is unaffected and keeps
+streaming.
+
 ## No credentials required
 
 DexBuilder serves every surface above **without** an API key. The HMAC signature

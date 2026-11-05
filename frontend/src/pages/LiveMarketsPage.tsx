@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, RefreshCw, WifiOff } from 'lucide-react'
-import { api, type LiveMarket } from '../api/client'
+import { Activity, KeyRound, RefreshCw, WifiOff } from 'lucide-react'
+import { api, type LiveAuthStatus, type LiveMarket } from '../api/client'
 import { Skeleton } from '../components/ui'
 
 const REFRESH_MS = 20000
@@ -25,6 +25,21 @@ export default function LiveMarketsPage({
   const [status, setStatus] = useState('active')
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const [auth, setAuth] = useState<LiveAuthStatus | null>(null)
+
+  const loadAuth = useCallback(async () => {
+    try {
+      setAuth(await api.getLiveAuth())
+    } catch {
+      setAuth(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAuth()
+    const iv = setInterval(() => void loadAuth(), 60000)
+    return () => clearInterval(iv)
+  }, [loadAuth])
 
   const load = useCallback(async () => {
     try {
@@ -72,11 +87,37 @@ export default function LiveMarketsPage({
               </span>
               DexBuilder
             </span>
+            {auth && (
+              <span
+                title={auth.upstream?.message || auth.scheme}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  auth.authenticated
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : auth.configured
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                      : 'border-slate-700 bg-slate-800/60 text-slate-400'
+                }`}
+              >
+                <KeyRound className="h-2.5 w-2.5" />
+                {auth.authenticated
+                  ? 'Auth ok'
+                  : auth.configured
+                    ? `Auth ${auth.upstream?.label || 'rejected'}`
+                    : 'Public only'}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-400">
             Real-time market data streamed from api.dexbuilder.com — read-only. Switch tabs for
             resolved markets and walk back through the upstream history.
           </p>
+          {auth && auth.configured && !auth.authenticated && (
+            <p className="mt-2 text-xs text-amber-300/90">
+              The upstream rejected the configured DexBuilder credential ({auth.upstream?.label}).
+              Public market data still works; account data (positions, trades, balances) stays
+              unavailable until a valid key is configured.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {updatedAt && (
