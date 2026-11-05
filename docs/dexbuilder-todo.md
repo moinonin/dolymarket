@@ -1,26 +1,46 @@
 # DexBuilder integration — TODO and upstream API status
 
+## Live data is wired (no credentials needed)
+
+The public DexBuilder prediction surfaces are consumed and displayed today.
+
+| Surface | Upstream | Dolymarket route | State |
+|---|---|---|---|
+| Markets list | `GET /api/v4/prediction/markets` | `GET /api/v4/prediction/live/markets` | done |
+| Market detail | `GET /api/v4/prediction/markets/{id}` | `GET /api/v4/prediction/live/markets/{id}` | done |
+| Events | `GET /api/v4/prediction/events` | `GET /api/v4/prediction/live/events` | done |
+| Order book | `GET /api/v4/prediction/tokens/{id}/order_book` | `GET /api/v4/prediction/live/tokens/{id}/order_book` | done |
+| Price history | `GET /api/v4/prediction/tokens/{id}/price_history` | `GET /api/v4/prediction/live/tokens/{id}/price_history` | done (candlestick fallback) |
+| Candlesticks | `GET /api/v4/prediction/tokens/{id}/candlesticks` | `GET /api/v4/prediction/live/tokens/{id}/candlesticks` | done |
+| Trade tape | `GET /api/v4/prediction/markets/{id}/trades` | `GET /api/v4/prediction/live/markets/{id}/trades` | done |
+| Tags | `GET /api/v4/prediction/tags` | `GET /api/v4/prediction/live/tags` | done |
+| Server time | `GET /api/v4/prediction/time` | `GET /api/v4/prediction/live/time` | done |
+
+Frontend: **Live** nav entry (`#/live`) with market list, quotes, order book,
+price chart and trade tape. See [Live DexBuilder data](live-data.md).
+
 ## Upstream endpoint status (probed live against api.dexbuilder.com)
 
 ### Streaming today (public, no auth)
 
 | Endpoint | Status | Notes |
 |---|---|---|
-| GET /api/v4/prediction/markets | 200 | live markets |
+| GET /api/v4/prediction/markets | 200 | live markets; `status=active` for open markets |
 | GET /api/v4/prediction/markets/{id} | 200 | best_bid/ask, last_trade_price |
 | GET /api/v4/prediction/markets/{id}/trades | 200 | public trade history |
 | GET /api/v4/prediction/tokens/{id}/order_book | 200 | real asks/bids |
 | GET /api/v4/prediction/tokens/{id}/candlesticks | 200 | K-line (OHLCV) |
-| GET /api/v4/prediction/tokens/{id}/price_history | 200 | needs interval + from/to (<=14 days) |
+| GET /api/v4/prediction/tokens/{id}/price_history | 200 | needs interval + millisecond from/to (<=14 days) |
 | GET /api/v4/prediction/tags | 200 | real tags |
-| GET /api/v4/prediction/time | 200 | server time |
+| GET /api/v4/prediction/time | 200 | server time (ms) |
+| GET /api/v4/prediction/events | 200 | localized titles + tag objects |
 | GET /api/v4/prediction/tokens/prices | 200 | returns {"items": []} even for valid ids (upstream gap) |
 | GET /api/v4/prediction/tokens/{id}/price | 404 | not implemented upstream — use market detail / order book |
 | GET /api/v4/prediction/tokens/{id}/ticker | 404 | not implemented upstream — use market detail / order book |
 | GET /api/v4/prediction/tokens/{id}/market | 404 | not implemented upstream |
 | GET /api/v4/prediction/markets/slug/{slug} | 404 | not implemented upstream |
 
-### Auth-gated (require HMAC Timestamp header — blocked on credentials)
+### Auth-gated (require an HMAC `Timestamp` header — blocked on credentials)
 
 | Endpoint | Status | Blocker |
 |---|---|---|
@@ -35,12 +55,14 @@
 
 ### Blockers
 1. No DexBuilder API credentials (DEXBUILDER_API_KEY / DEXBUILDER_API_SECRET) in this environment.
-2. REST HMAC signing scheme (header names + signed message format) is not documented in the scraped material — only the WebSocket auth (`t`, `key`, `sign`) is. Our `_sign` uses a guessed scheme (`X-DB-KEY`/`X-DB-SIGN`/`X-DB-TIMESTAMP`, message `{timestamp}{method}{path}{body}`) which is unverified.
-3. Upstream gaps (not our bug): single-token `/price` and `/ticker`, bulk `/tokens/prices` (empty), `/tokens/{id}/market`, `/markets/slug/{slug}`.
+2. REST HMAC signing scheme (header names + signed message format) is not documented in the scraped material — only the WebSocket auth (`t`, `key`, `sign`) is. Our `_sign` now sends the canonical `Timestamp` header plus `key`/`sign` and the `X-DB-*` aliases, with the query string included in the signed message, but the exact upstream scheme is still unverified.
+3. Upstream gaps (not our bug): single-token `/price` and `/ticker`, bulk `/tokens/prices` (empty), `/tokens/{id}/market`, `/markets/slug/{slug}`, and `/tokens/{id}/price_history` returning 404 for unindexed tokens.
 
 ## TODO
-- [ ] Obtain DexBuilder API credentials and the official REST HMAC spec; correct `_sign` and verify usertrades/positions/assets/account_book/fee/claims end-to-end.
-- [ ] Implement the remaining backend surfaces: markets/{id}/trades (done locally), positions/{id}, positions/{id}/close, assets, account_book, fee, claims/*, time, candlesticks.
-- [ ] Frontend: TagsPage, UserTradesPage, SettledPositionsPage, MarketDetailPage (bulk prices + order book), plus dexbuilder proxy client methods and nav wiring.
+- [x] Obtain live public DexBuilder data without credentials and display it (markets, quotes, books, candles, trades, tags, time).
+- [x] Implement the remaining backend surfaces: tags, bulk prices, user trades, settled positions, time, trades, candlesticks, token market.
+- [x] Frontend: TagsPage, UserTradesPage, SettledPositionsPage, MarketDetailPage, Live markets + live market detail, dexbuilder proxy client methods and nav wiring.
+- [ ] Obtain DexBuilder API credentials and the official REST HMAC spec; verify usertrades/positions/assets/account_book/fee/claims end-to-end.
 - [ ] Admin UI for creating events/markets and reviewing Pro Desks.
-- [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com.
+- [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the client currently reads `VITE_WS_URL`; `VITE_DEXBUILDER_WS_URL` is unused).
+- [ ] Route live markets into the trade ticket once upstream order placement is authenticated.

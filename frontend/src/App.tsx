@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
+  Activity,
   BarChart3,
   BookOpen,
   Briefcase,
@@ -28,6 +29,8 @@ import TagsPage from './pages/TagsPage'
 import UserTradesPage from './pages/UserTradesPage'
 import SettledPositionsPage from './pages/SettledPositionsPage'
 import MarketDetailPage from './pages/MarketDetailPage'
+import LiveMarketsPage from './pages/LiveMarketsPage'
+import LiveMarketDetailPage from './pages/LiveMarketDetailPage'
 
 // Tiny hash router — path segments after '#'.
 function useHashRoute(): [string[], (to: string) => void] {
@@ -72,7 +75,7 @@ function Shell() {
   let page: React.ReactNode
   if (section === 'home') {
     page = user ? (
-      <MarketsPage onOpenEvent={openEvent} />
+      <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
     ) : (
       <HomePage
         onOpenEvent={openEvent}
@@ -97,6 +100,12 @@ function Shell() {
     page = <SettledPositionsPage />
   } else if (section === 'market' && route[1]) {
     page = <MarketDetailPage marketId={route[1]} onBack={() => navigate('markets')} />
+  } else if (section === 'live' && route[1] === 'market' && route[2]) {
+    page = (
+      <LiveMarketDetailPage marketId={route[2]} onBack={() => navigate('live')} />
+    )
+  } else if (section === 'live') {
+    page = <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
   } else if (section === 'event' && route[1]) {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
   } else if (section === 'portfolio') {
@@ -104,7 +113,7 @@ function Shell() {
   } else if (section === 'resolution') {
     page = <ResolutionPage />
   } else {
-    page = <MarketsPage onOpenEvent={openEvent} />
+    page = <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
   }
 
   return (
@@ -131,6 +140,7 @@ function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) 
 
 const NAV_ITEMS = [
   { key: 'markets', label: 'Markets', icon: LineChart },
+  { key: 'live', label: 'Live', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'tags', label: 'Tags', icon: Tag },
   { key: 'trades', label: 'Trades', icon: TrendingUp },
@@ -142,6 +152,7 @@ const NAV_ITEMS = [
 const ANON_NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'markets', label: 'Markets', icon: LineChart },
+  { key: 'live', label: 'Live', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'tags', label: 'Tags', icon: Tag },
 ]

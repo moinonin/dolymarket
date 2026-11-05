@@ -1,0 +1,83 @@
+task_id: live-dexbuilder-feed
+status: active
+archetype: read_only_data_feed
+summary: "Live DexBuilder feed: serve the public prediction surfaces of api.dexbuilder.com (markets, events, order books, candles, tags, trades, server time) through normalized, cached, read-only Dolymarket routes and display them in the frontend."
+entrypoint: app/main.py
+scope: "Additive brownfield change to the existing FastAPI + React Dolymarket repository. Extend app/services/dexbuilder.py, add app/services/live_data.py, add app/api/v4/prediction/live.py, extend app/api/v4/dexbuilder/proxy.py, extend frontend/src/api/client.ts, add frontend/src/pages/LiveMarketsPage.tsx and frontend/src/pages/LiveMarketDetailPage.tsx, wire frontend/src/App.tsx. Do not scaffold a new project and do not regenerate existing files."
+out_of_scope:
+  - "Credentialed upstream reads (positions, account book, user trades, claims, fee) which stay blocked on the official REST HMAC spec"
+  - "Placing, cancelling or amending orders against upstream DexBuilder markets"
+  - "Replacing the local seeded market universe; live markets are displayed alongside the tradeable local markets"
+  - "Streaming live data over the upstream websocket broker"
+assumptions:
+  - "The change is additive: the pre-change endpoint contract in .githeri/baseline.json must keep resolving"
+  - "DexBuilder serves the public prediction surfaces without credentials; credentials only gate the /api/v4/dexbuilder proxy namespace"
+  - "Public upstream reads may fail; the UI degrades to an explicit error state instead of blocking local trading"
+business_rules:
+  - name: "Public Upstream Reads Need No Credentials"
+    formula: "A public upstream read is attempted whenever DEXBUILDER_API_BASE is set; HMAC headers are attached only when DEXBUILDER_API_SECRET is present. The /api/v4/dexbuilder proxy namespace still returns HTTP 503 DEXBUILDER_NOT_CONFIGURED when DEXBUILDER_API_KEY is empty."
+  - name: "Decimal Normalization"
+    formula: "Every upstream price, size, volume and liquidity is parsed into Decimal before any derivation; mid_price = (best_bid + best_ask) / 2 is computed in Decimal and only converted to a JSON number at the serialization boundary."
+  - name: "Book Ordering"
+    formula: "Normalized books expose bids sorted descending and asks sorted ascending so the best price is first on both sides, matching the local OrderBookSnapshot contract."
+  - name: "Read-Only Semantics"
+    formula: "Live routes never mutate state and never expose private upstream data; every live payload carries source='dexbuilder' and read_only=true."
+  - name: "Upstream Failure Is Explicit"
+    formula: "When the upstream cannot be reached the live routes answer HTTP 502 DEXBUILDER_UPSTREAM_UNAVAILABLE; the frontend renders an error banner and keeps the rest of the app usable."
+  - name: "Cache And Circuit Breaker"
+    formula: "Successful upstream reads are cached for 10 seconds; after 3 consecutive failures the circuit opens for 30 seconds and stale cached values are served while the upstream recovers."
+  - name: "History Fallback"
+    formula: "When upstream price_history answers 404 for a token, the candlestick surface is used for the same window; the request window never exceeds 14 days."
+endpoints:
+  - method: GET
+    path: /api/v4/prediction/live/status
+  - method: GET
+    path: /api/v4/prediction/live/markets
+  - method: GET
+    path: /api/v4/prediction/live/markets/{market_id}
+  - method: GET
+    path: /api/v4/prediction/live/events
+  - method: GET
+    path: /api/v4/prediction/live/tags
+  - method: GET
+    path: /api/v4/prediction/live/time
+  - method: GET
+    path: /api/v4/prediction/live/tokens/{token_id}/order_book
+  - method: GET
+    path: /api/v4/prediction/live/tokens/{token_id}/price_history
+  - method: GET
+    path: /api/v4/prediction/live/tokens/{token_id}/candlesticks
+  - method: GET
+    path: /api/v4/prediction/live/markets/{market_id}/trades
+  - method: GET
+    path: /api/v4/dexbuilder/time
+  - method: GET
+    path: /api/v4/dexbuilder/tokens/{token_id}/candlesticks
+  - method: GET
+    path: /api/v4/dexbuilder/markets/{market_id}/trades
+acceptance_criteria:
+  - test: "Normalization worked example"
+    steps: "Given best_bid='0.028' and best_ask='0.030', assert best_bid=0.028, best_ask=0.03 and mid_price=0.029; assert outcome prices 0.03/0.09 and that an empty quote string yields null."
+  - test: "Book ordering worked example"
+    steps: "Given upstream asks descending and bids ascending, assert normalized bids start at 0.028 and normalized asks start at 0.03."
+  - test: "Credential-free public read"
+    steps: "With DEXBUILDER_API_KEY empty, assert the upstream request carries neither a timestamp nor an authorization header and the /api/v4/dexbuilder proxy still answers HTTP 503 DEXBUILDER_NOT_CONFIGURED."
+  - test: "Upstream failure handling"
+    steps: "With an upstream that answers HTTP 500, assert GET /api/v4/prediction/live/markets answers HTTP 502 with detail DEXBUILDER_UPSTREAM_UNAVAILABLE."
+  - test: "Cache and circuit breaker"
+    steps: "Assert a second identical read within the TTL performs no additional upstream call, and that 3 consecutive failures open the circuit."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "httpx", "pydantic", "pytest", "pytest-asyncio"]
+  env_vars:
+    DEXBUILDER_API_BASE: "https://api.dexbuilder.com"
+    DEXBUILDER_API_KEY: ""
+    DEXBUILDER_API_SECRET: ""
+  services: []
+global_verification:
+  - "pytest tests/test_live_data.py"
+  - "pytest tests/test_dexbuilder_parity.py"
+context:
+  language: Python
+  framework: FastAPI
+  test_framework: pytest

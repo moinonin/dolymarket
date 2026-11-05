@@ -91,6 +91,74 @@ export interface Candle {
   volume: number;
 }
 
+/** Live DexBuilder market (read-only upstream data). */
+export interface LiveMarket {
+  id: string;
+  event_id: string;
+  condition_id: string | null;
+  question: string;
+  event_title: string | null;
+  slug: string | null;
+  outcomes: string[];
+  tokens: (OutcomeToken & { price: number | null })[];
+  prices: Record<string, number>;
+  tick_size: number;
+  min_order_size: number;
+  status: string;
+  start_time: number | null;
+  end_time: number | null;
+  category: string;
+  tags: string[];
+  accepting_orders: boolean;
+  closed: boolean;
+  best_bid: number | null;
+  best_ask: number | null;
+  mid_price: number | null;
+  last_trade_price: number | null;
+  volume: number;
+  liquidity: number;
+  source: string;
+  read_only: boolean;
+}
+
+/** Live DexBuilder event. */
+export interface LiveEvent {
+  id: string;
+  slug: string | null;
+  title: string;
+  category: string;
+  tags: string[];
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  total_volume: number;
+  source: string;
+  read_only: boolean;
+}
+
+/** Live DexBuilder trade print. */
+export interface LiveTrade {
+  id: string;
+  market_id: string;
+  token_id: string;
+  outcome: string | null;
+  side: string;
+  price: number | null;
+  size: number | null;
+  timestamp: string | null;
+  source: string;
+}
+
+/** Runtime status of the live upstream integration. */
+export interface LiveStatus {
+  upstream: string;
+  public_reads: boolean;
+  credentialed: boolean;
+  cache_entries: number;
+  circuit_open: boolean;
+  consecutive_failures: number;
+}
+
 export interface Order {
   id: string | null;
   market_id: string;
@@ -607,6 +675,77 @@ export class ApiClient {
   }
   getDexBuilderTime(): Promise<{ server_time: number }> {
     return this.request('/api/v4/dexbuilder/time', {}, false);
+  }
+
+  // ---- Live DexBuilder data (public upstream reads, read-only) -------------
+
+  getLiveStatus(): Promise<LiveStatus> {
+    return this.request('/api/v4/prediction/live/status', {}, false);
+  }
+  getLiveMarkets(
+    params: { status?: string; category?: string; limit?: number } = {}
+  ): Promise<{ markets: LiveMarket[]; total: number; source: string }> {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.category) q.set('category', params.category);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request(`/api/v4/prediction/live/markets${qs ? '?' + qs : ''}`, {}, false);
+  }
+  getLiveMarket(marketId: string): Promise<LiveMarket> {
+    return this.request(
+      `/api/v4/prediction/live/markets/${encodeURIComponent(marketId)}`,
+      {},
+      false
+    );
+  }
+  getLiveEvents(params: { limit?: number } = {}): Promise<{ events: LiveEvent[] }> {
+    const q = params.limit ? `?limit=${params.limit}` : '';
+    return this.request(`/api/v4/prediction/live/events${q}`, {}, false);
+  }
+  getLiveTags(): Promise<{ tags: string[] }> {
+    return this.request('/api/v4/prediction/live/tags', {}, false);
+  }
+  getLiveTime(): Promise<{ server_time: number }> {
+    return this.request('/api/v4/prediction/live/time', {}, false);
+  }
+  getLiveOrderBook(tokenId: string, depth = 50): Promise<OrderBookSnapshot> {
+    return this.request(
+      `/api/v4/prediction/live/tokens/${encodeURIComponent(tokenId)}/order_book?depth=${depth}`,
+      {},
+      false
+    );
+  }
+  getLivePriceHistory(
+    tokenId: string,
+    interval = '1h'
+  ): Promise<{ candles: Candle[]; interval: string }> {
+    return this.request(
+      `/api/v4/prediction/live/tokens/${encodeURIComponent(tokenId)}/price_history?interval=${interval}`,
+      {},
+      false
+    );
+  }
+  getLiveCandlesticks(
+    tokenId: string,
+    interval = '1m',
+    limit = 200
+  ): Promise<{ candlesticks: Candle[] }> {
+    return this.request(
+      `/api/v4/prediction/live/tokens/${encodeURIComponent(tokenId)}/candlesticks?interval=${interval}&limit=${limit}`,
+      {},
+      false
+    );
+  }
+  getLiveMarketTrades(
+    marketId: string,
+    limit = 50
+  ): Promise<{ trades: LiveTrade[] }> {
+    return this.request(
+      `/api/v4/prediction/live/markets/${encodeURIComponent(marketId)}/trades?limit=${limit}`,
+      {},
+      false
+    );
   }
 
   // ---- Positions -----------------------------------------------------------

@@ -38,6 +38,7 @@ nav:
     - Market details: markets/market-details.md
     - Prices & order book: markets/prices-orderbook.md
     - Real-time data: markets/realtime.md
+    - Live DexBuilder data: live-data.md
   - Portfolio:
     - Positions: portfolio/positions.md
     - Settled positions: portfolio/settled.md

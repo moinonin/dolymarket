@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_async_session
-from app.services.dexbuilder import DexBuilderClient, get_config
+from app.services.dexbuilder import DexBuilderClient
 
 router = APIRouter(prefix="/api/v4/dexbuilder", tags=["dexbuilder"])
 
@@ -37,6 +37,18 @@ async def proxy_market(market_id: str, client: DexBuilderClient = Depends(get_cl
 async def proxy_market_by_slug(slug: str, client: DexBuilderClient = Depends(get_client)):
     try:
         return await client.get_market_by_slug(slug)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
+
+
+@router.get("/markets/{market_id}/trades")
+async def proxy_market_trades(
+    market_id: str,
+    limit: int = 50,
+    client: DexBuilderClient = Depends(get_client),
+):
+    try:
+        return await client.get_market_trades(market_id, limit=limit)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
 
@@ -98,17 +110,57 @@ async def proxy_ticker(token_id: str, client: DexBuilderClient = Depends(get_cli
 
 
 @router.get("/tokens/{token_id}/price_history")
-async def proxy_price_history(token_id: str, client: DexBuilderClient = Depends(get_client)):
+async def proxy_price_history(
+    token_id: str,
+    interval: str = "1h",
+    from_ms: int | None = Query(default=None, alias="from"),
+    to_ms: int | None = Query(default=None, alias="to"),
+    client: DexBuilderClient = Depends(get_client),
+):
     try:
-        return await client.get_price_history(token_id)
+        return await client.get_price_history(
+            token_id, interval=interval, from_ms=from_ms, to_ms=to_ms
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
+
+
+@router.get("/tokens/{token_id}/candlesticks")
+async def proxy_candlesticks(
+    token_id: str,
+    interval: str = "1m",
+    limit: int = 200,
+    client: DexBuilderClient = Depends(get_client),
+):
+    try:
+        return await client.get_candlesticks(token_id, interval=interval, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
+
+
+@router.get("/time")
+async def proxy_time(client: DexBuilderClient = Depends(get_client)):
+    try:
+        return await client.get_time()
     except Exception as exc:
         raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
 
 
 @router.get("/tokens/prices")
-async def proxy_bulk_prices(ids: str = Query(...), client: DexBuilderClient = Depends(get_client)):
+async def proxy_bulk_prices(
+    ids: str | None = Query(default=None),
+    token_ids: list[str] | None = Query(default=None),
+    client: DexBuilderClient = Depends(get_client),
+):
+    # Upstream expects repeated `token_ids` params; `ids` accepts a comma
+    # separated list for convenience.
+    requested: list[str] = []
+    if token_ids:
+        requested.extend(token_ids)
+    if ids:
+        requested.extend(part.strip() for part in ids.split(",") if part.strip())
     try:
-        return await client.get_prices([x.strip() for x in ids.split(",") if x.strip()])
+        return await client.get_prices(requested)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="DEXBUILDER_BAD_RESPONSE") from exc
 

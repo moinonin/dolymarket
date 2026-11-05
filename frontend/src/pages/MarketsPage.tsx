@@ -31,7 +31,13 @@ interface TickerRow {
   price: number | null
 }
 
-export default function MarketsPage({ onOpenEvent }: { onOpenEvent: (slug: string) => void }) {
+export default function MarketsPage({
+  onOpenEvent,
+  onOpenLive,
+}: {
+  onOpenEvent: (slug: string) => void
+  onOpenLive?: () => void
+}) {
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +111,14 @@ export default function MarketsPage({ onOpenEvent }: { onOpenEvent: (slug: strin
           <div className="flex items-center gap-6">
             <Stat icon={<TrendingUp className="h-4 w-4 text-emerald-400" />} label="Open Markets" value={`${events.filter((e) => e.status === 'ACTIVE').length}`} />
             <Stat icon={<BookOpen className="h-4 w-4 text-blue-400" />} label="Listed Events" value={`${events.length}`} />
+            {onOpenLive && (
+              <button
+                onClick={onOpenLive}
+                className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500/60 hover:bg-emerald-500/15"
+              >
+                <Activity className="h-4 w-4" /> Live DexBuilder feed →
+              </button>
+            )}
           </div>
         </div>
       </section>
