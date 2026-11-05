@@ -28,6 +28,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
   const [error, setError] = useState<string | null>(null)
   const [myDesk, setMyDesk] = useState<any>(null)
   const [creating, setCreating] = useState(false)
+  const fetchedMyDesk = React.useRef(false)
 
   async function load() {
     try {
@@ -45,7 +46,9 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
   }, [sort])
 
   useEffect(() => {
-    if (!user) { setMyDesk(null); return }
+    if (!user) { setMyDesk(null); fetchedMyDesk.current = false; return }
+    if (fetchedMyDesk.current) return
+    fetchedMyDesk.current = true
     api.getMyDesk().then((r) => setMyDesk(r.desk)).catch(() => setMyDesk(null))
   }, [user])
 
