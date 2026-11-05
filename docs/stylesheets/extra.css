@@ -32,3 +32,188 @@
 .md-tabs {
   background-color: #00d492;
 }
+
+/* ---------------------------------------------------------------------------
+   Responsive layout: small screens (mobile) through wide desktops.
+   Mirrors the behaviour of the main DolyMarket app (scrollable top nav,
+   stacked content, full-width drawers).
+   ------------------------------------------------------------------------- */
+
+/* --- Mobile: header -------------------------------------------------------- */
+
+@media screen and (max-width: 44.9844em) {
+  /* Header becomes a single row: brand + hamburger + search. */
+  .md-header__inner {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .md-header__button.md-logo {
+    order: 1;
+    flex: 0 0 auto;
+  }
+
+  .md-header__topic {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .md-header__button.md-search {
+    order: 3;
+    flex: 0 0 auto;
+  }
+
+  .md-header__button.md-header__source {
+    order: 4;
+    flex: 0 0 auto;
+  }
+
+  /* The tabs row becomes a horizontally scrollable strip instead of wrapping
+     into a tall stack, mirroring the main site's overflow-x nav. */
+  .md-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .md-tabs__list {
+    display: flex;
+    flex-wrap: nowrap;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .md-tabs__link {
+    white-space: nowrap;
+    padding: 0.6rem 0.75rem;
+  }
+
+  /* Content: comfortable gutters, no horizontal overflow. */
+  .md-content__inner {
+    padding: 1rem 0.9rem 2rem;
+  }
+
+  .md-typeset h1 {
+    font-size: 1.6rem;
+    line-height: 1.25;
+  }
+
+  .md-typeset h2 {
+    font-size: 1.3rem;
+  }
+
+  .md-typeset h3 {
+    font-size: 1.1rem;
+  }
+
+  .md-typeset table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .md-typeset pre > code {
+    font-size: 0.78rem;
+  }
+
+  /* Navigation drawer occupies the full viewport width on phones. */
+  .md-nav--primary,
+  .md-nav--secondary {
+    width: 100%;
+  }
+
+  /* Footer stacks cleanly. */
+  .md-footer-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* --- Tablet ---------------------------------------------------------------- */
+
+@media screen and (min-width: 45em) and (max-width: 76.2344em) {
+  .md-content__inner {
+    padding: 1.4rem 1.2rem 2.5rem;
+  }
+
+  .md-typeset table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+  }
+}
+
+/* --- Large screens --------------------------------------------------------- */
+
+@media screen and (min-width: 76.2344em) {
+  /* Wide, readable content column; TOC gets its own rail. */
+  .md-grid {
+    max-width: 90rem;
+    margin: 0 auto;
+  }
+
+  .md-content__inner {
+    padding: 2rem 2.5rem 4rem;
+    max-width: 62rem;
+  }
+
+  .md-typeset {
+    font-size: 0.82rem;
+    line-height: 1.7;
+  }
+
+  .md-typeset h1 {
+    font-size: 2rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .md-typeset h2 {
+    font-size: 1.45rem;
+    margin-top: 2rem;
+  }
+
+  .md-typeset table {
+    width: 100%;
+  }
+
+  /* Give the integrated TOC breathing room and a sticky position. */
+  .md-sidebar--secondary {
+    width: 14rem;
+  }
+
+  .md-sidebar--secondary .md-nav {
+    font-size: 0.68rem;
+  }
+}
+
+/* --- Ultra-wide ------------------------------------------------------------ */
+
+@media screen and (min-width: 120em) {
+  .md-grid {
+    max-width: 110rem;
+  }
+
+  .md-content__inner {
+    max-width: 70rem;
+  }
+}
+
+/* --- Touch targets --------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  .md-tabs__link,
+  .md-nav__link {
+    min-height: 2.4rem;
+    display: flex;
+    align-items: center;
+  }
+}
