@@ -28,6 +28,12 @@ business_rules:
     formula: "Successful upstream reads are cached for 10 seconds; after 3 consecutive failures the circuit opens for 30 seconds and stale cached values are served while the upstream recovers."
   - name: "History Fallback"
     formula: "When upstream price_history answers 404 for a token, the candlestick surface is used for the same window; the request window never exceeds 14 days."
+  - name: "History And Resolution"
+    formula: "status=active returns open markets and status=resolved|closed|settled returns the upstream history; the winner of a closed market is the single outcome priced exactly 1, and a closed market with zero or several such outcomes reports no winner."
+  - name: "Upstream Status Vocabulary"
+    formula: "Dolymarket status filters are mapped onto the upstream vocabulary: active|open -> active, resolved|settled|closed|historical -> closed, empty -> closed; any other value is rejected with HTTP 422."
+  - name: "History Pagination"
+    formula: "offset walks back through the upstream market history in pages of at most 100 items; the response reports offset, limit, has_more and next_offset."
 endpoints:
   - method: GET
     path: /api/v4/prediction/live/status
@@ -66,6 +72,10 @@ acceptance_criteria:
     steps: "With an upstream that answers HTTP 500, assert GET /api/v4/prediction/live/markets answers HTTP 502 with detail DEXBUILDER_UPSTREAM_UNAVAILABLE."
   - test: "Cache and circuit breaker"
     steps: "Assert a second identical read within the TTL performs no additional upstream call, and that 3 consecutive failures open the circuit."
+  - test: "Resolved market winner derivation"
+    steps: "Given a closed market whose outcomes are priced 0 and 1, assert resolved=true, winning_outcome_index=1 and winning_outcome='No'; given a closed market priced 0.5/0.5 assert winning_outcome_index is null."
+  - test: "History pagination"
+    steps: "Request status=resolved with offset=100 and assert the upstream is called with status=closed and offset=100, and that the response reports offset, has_more and next_offset."
 test_fixtures: []
 environment:
   packages: ["fastapi", "httpx", "pydantic", "pytest", "pytest-asyncio"]

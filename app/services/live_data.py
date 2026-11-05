@@ -87,6 +87,22 @@ def _iso(seconds: Any) -> str | None:
         return None
 
 
+def normalize_status(status: str | None) -> str:
+    """Map Dolymarket status filters onto the upstream status values.
+
+    Upstream only understands ``active`` and ``closed`` (anything else answers
+    HTTP 400), and an empty status returns closed markets.
+    """
+    if not status:
+        return "closed"
+    value = str(status).strip().lower()
+    if value in ("active", "open"):
+        return "active"
+    if value in ("closed", "resolved", "settled", "historical"):
+        return "closed"
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Normalizers
 # ---------------------------------------------------------------------------
@@ -112,6 +128,7 @@ def normalize_market(raw: dict) -> dict:
     outcomes: list[str] = []
     tokens: list[dict] = []
     prices: dict[str, float] = {}
+    outcome_prices: list[Decimal | None] = []
     for index, outcome in enumerate(outcomes_raw):
         if isinstance(outcome, dict):
             symbol = str(outcome.get("outcome") or f"Outcome {index + 1}")
@@ -122,6 +139,7 @@ def normalize_market(raw: dict) -> dict:
             token_id = ""
             price = None
         outcomes.append(symbol)
+        outcome_prices.append(price)
         tokens.append(
             {
                 "token_id": token_id,
@@ -152,6 +170,10 @@ def normalize_market(raw: dict) -> dict:
     else:
         tag_labels = []
 
+    status = str(raw.get("status") or "active").upper()
+    closed = bool(raw.get("closed")) or status == "CLOSED"
+    winning_index, winning_symbol = _winning_outcome(outcome_prices, outcomes, closed)
+
     return {
         "id": str(raw.get("market_id") or raw.get("id") or ""),
         "event_id": str(raw.get("event_id") or ""),
@@ -164,16 +186,18 @@ def normalize_market(raw: dict) -> dict:
         "prices": prices,
         "tick_size": float(DEFAULT_TICK_SIZE),
         "min_order_size": float(DEFAULT_MIN_ORDER_SIZE),
-        "status": str(raw.get("status") or "active").upper(),
+        "status": status,
         "neg_risk": False,
-        "winning_outcome_index": None,
+        "winning_outcome_index": winning_index,
+        "winning_outcome": winning_symbol,
+        "resolved": closed,
         "created_at": _iso(raw.get("start_time")),
         "start_time": raw.get("start_time"),
         "end_time": raw.get("end_time"),
         "category": raw.get("category") or "",
         "tags": tag_labels,
         "accepting_orders": bool(raw.get("accepting_orders")),
-        "closed": bool(raw.get("closed")),
+        "closed": closed,
         "enable_order_book": bool(raw.get("enable_order_book")),
         "best_bid": None if best_bid is None else float(best_bid),
         "best_ask": None if best_ask is None else float(best_ask),
@@ -184,6 +208,28 @@ def normalize_market(raw: dict) -> dict:
         "source": "dexbuilder",
         "read_only": True,
     }
+
+
+def _winning_outcome(
+    prices: list[Decimal | None],
+    symbols: list[str],
+    closed: bool,
+) -> tuple[int | None, str | None]:
+    """Derive the resolved outcome from the upstream settlement prices.
+
+    DexBuilder settles a closed market by pricing the winning outcome at
+    exactly 1 and the losing outcome(s) at 0. A closed market with no (or more
+    than one) outcome priced at 1 has not settled cleanly, so no winner is
+    reported.
+    """
+    if not closed:
+        return None, None
+    winners = [index for index, price in enumerate(prices) if price == Decimal(1)]
+    if len(winners) != 1:
+        return None, None
+    index = winners[0]
+    symbol = symbols[index] if index < len(symbols) else None
+    return index, symbol
 
 
 def normalize_event(raw: dict) -> dict:
@@ -354,19 +400,28 @@ class LiveMarketFeed:
         status: str | None = "active",
         category: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> dict:
+        upstream_status = normalize_status(status)
         params: dict[str, Any] = {"limit": limit}
-        if status:
-            params["status"] = status
+        if upstream_status:
+            params["status"] = upstream_status
         if category:
             params["category"] = category
-        key = f"markets:{status}:{category}:{limit}"
+        if offset:
+            params["offset"] = offset
+        key = f"markets:{upstream_status}:{category}:{limit}:{offset}"
         raw = await self._fetch(key, lambda: self.client.get_markets(**params))
         items = raw.get("items", []) if isinstance(raw, dict) else (raw or [])
         markets = [normalize_market(item) for item in items if isinstance(item, dict)]
         return {
             "markets": markets,
             "total": raw.get("total", len(markets)) if isinstance(raw, dict) else len(markets),
+            "status": upstream_status or "closed",
+            "offset": offset,
+            "limit": limit,
+            "has_more": len(markets) >= limit,
+            "next_offset": offset + len(markets) if len(markets) >= limit else None,
             "source": "dexbuilder",
             "read_only": True,
         }

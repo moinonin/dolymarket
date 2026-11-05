@@ -4,6 +4,13 @@ import { api, type LiveMarket } from '../api/client'
 import { Skeleton } from '../components/ui'
 
 const REFRESH_MS = 20000
+const PAGE_SIZE = 50
+
+const STATUS_TABS = [
+  { key: 'active', label: 'Live now' },
+  { key: 'resolved', label: 'Resolved' },
+  { key: 'closed', label: 'All closed' },
+]
 
 export default function LiveMarketsPage({
   onOpenMarket,
@@ -15,11 +22,15 @@ export default function LiveMarketsPage({
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [status, setStatus] = useState('active')
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const res = await api.getLiveMarkets({ status: 'active', limit: 50 })
+      const res = await api.getLiveMarkets({ status, limit: PAGE_SIZE, offset })
       setMarkets(res.markets || [])
+      setHasMore(Boolean(res.has_more))
       setUpdatedAt(Date.now())
       setError(null)
     } catch (err: any) {
@@ -27,7 +38,7 @@ export default function LiveMarketsPage({
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [status, offset])
 
   useEffect(() => {
     void load()
@@ -63,7 +74,8 @@ export default function LiveMarketsPage({
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-400">
-            Real-time market data streamed from api.dexbuilder.com — read-only.
+            Real-time market data streamed from api.dexbuilder.com — read-only. Switch tabs for
+            resolved markets and walk back through the upstream history.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -85,8 +97,48 @@ export default function LiveMarketsPage({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search live markets…"
-        className="mb-6 w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-500/50"
+        className="mb-4 w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3.5 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-500/50"
       />
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1.5">
+          {STATUS_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setStatus(t.key)
+                setOffset(0)
+              }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                status === t.key
+                  ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            disabled={offset === 0}
+            className="rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-800 disabled:hover:text-slate-300"
+          >
+            ← Newer
+          </button>
+          <span className="text-[11px] text-slate-500">
+            {offset === 0 ? 'latest' : `history ${offset}+`}
+          </span>
+          <button
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+            disabled={!hasMore}
+            className="rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-800 disabled:hover:text-slate-300"
+          >
+            Older →
+          </button>
+        </div>
+      </div>
 
       {error && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-rose-800/60 bg-rose-950/40 p-4 text-sm text-rose-200">
@@ -110,11 +162,15 @@ export default function LiveMarketsPage({
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-800 py-16 text-center">
-          <p className="text-sm font-medium text-slate-300">No live markets found</p>
+          <p className="text-sm font-medium text-slate-300">
+            {status === 'active' ? 'No live markets found' : 'No resolved markets on this page'}
+          </p>
           <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
             {search
               ? 'Nothing matches that search in the live feed. Try a different term.'
-              : 'The upstream currently returns no active markets.'}
+              : status === 'active'
+                ? 'The upstream currently returns no active markets.'
+                : 'Use “Older →” to walk further back through the upstream history.'}
           </p>
         </div>
       ) : (
@@ -133,6 +189,8 @@ function LiveMarketCard({ market, onOpen }: { market: LiveMarket; onOpen: () => 
   const second = market.tokens?.[1]
   const yes = first?.price ?? null
   const no = second?.price ?? null
+  const resolved = market.resolved || market.status === 'CLOSED'
+  const winnerIndex = market.winning_outcome_index
   return (
     <button
       onClick={onOpen}
@@ -142,9 +200,15 @@ function LiveMarketCard({ market, onOpen }: { market: LiveMarket; onOpen: () => 
         <h2 className="text-sm font-semibold leading-snug text-white group-hover:text-emerald-200">
           {market.question}
         </h2>
-        <span className="shrink-0 rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-          {market.status}
-        </span>
+        {resolved ? (
+          <span className="shrink-0 rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-300">
+            Resolved
+          </span>
+        ) : (
+          <span className="shrink-0 rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+            {market.status}
+          </span>
+        )}
       </div>
       {market.event_title && (
         <p className="mt-1 truncate text-xs text-slate-500">{market.event_title}</p>
@@ -180,6 +244,22 @@ function LiveMarketCard({ market, onOpen }: { market: LiveMarket; onOpen: () => 
           </div>
         )}
       </div>
+
+      {resolved && (
+        <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-[11px]">
+          {winnerIndex != null && market.outcomes?.[winnerIndex] ? (
+            <span className="text-slate-300">
+              Result:{' '}
+              <span className="font-semibold text-emerald-300">
+                {market.outcomes[winnerIndex]}
+              </span>{' '}
+              won
+            </span>
+          ) : (
+            <span className="text-slate-500">Closed — upstream reports no settled outcome</span>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         <span>vol ${fmtCompact(market.volume)}</span>

@@ -7,6 +7,46 @@ trade tape — without any DexBuilder account.
 Open the **Live** tab in the main navigation (or use the *Live DexBuilder feed*
 button on the Markets page).
 
+## Historical and resolved markets
+
+DexBuilder keeps its settled history: `status=closed` returns markets that have
+already resolved, and `offset` walks back through it in pages of up to 100.
+
+| Dolymarket filter | Upstream status |
+|---|---|
+| `active` (or `open`) | `active` |
+| `resolved` (or `settled`, `historical`) | `closed` |
+| `closed` | `closed` |
+| *(empty)* | `closed` |
+
+```bash
+curl "http://localhost:8000/api/v4/prediction/live/markets?status=resolved&limit=50&offset=0"
+curl "http://localhost:8000/api/v4/prediction/live/markets?status=resolved&limit=50&offset=2000"
+```
+
+The response carries the pagination cursor:
+
+```json
+{ "markets": [], "status": "closed", "offset": 2000, "limit": 50,
+  "has_more": true, "next_offset": 2050, "source": "dexbuilder" }
+```
+
+### How the winner is derived
+
+DexBuilder does not expose a `winner` field. It settles a closed market by
+pricing the winning outcome at exactly `1` and the losing outcome at `0`, so
+Dolymarket derives the result from the settlement prices:
+
+- exactly one outcome priced `1` → that outcome is the winner
+  (`winning_outcome_index`, `winning_outcome`)
+- zero or several outcomes priced `1` → the market is closed but **not** settled
+  cleanly, so no winner is reported
+
+Active markets never report a winner.
+
+In the UI, switch the Live page to **Resolved** (or **All closed**) and page
+back with **Older →**; resolved cards show the outcome that won.
+
 ## What is live
 
 | Surface | Upstream endpoint | Dolymarket route |

@@ -13,6 +13,9 @@ from app.services.live_data import LiveMarketFeed, LiveUnavailableError, get_liv
 
 router = APIRouter(prefix="/api/v4/prediction", tags=["prediction-live"])
 
+#: Dolymarket status filters accepted by the live market list.
+ALLOWED_STATUSES = {"active", "open", "closed", "resolved", "settled", "historical", ""}
+
 
 def _unavailable(exc: LiveUnavailableError) -> HTTPException:
     return HTTPException(status_code=502, detail="DEXBUILDER_UPSTREAM_UNAVAILABLE")
@@ -29,11 +32,23 @@ async def live_markets(
     status: str | None = Query(default="active"),
     category: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     feed: LiveMarketFeed = Depends(get_live_feed),
 ):
-    """Live markets straight from DexBuilder."""
+    """Live markets straight from DexBuilder.
+
+    ``status`` accepts ``active``, ``closed`` and the ``resolved`` alias;
+    ``offset`` walks back through the upstream history.
+    """
+    if status is not None and str(status).strip().lower() not in ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"status must be one of: {', '.join(sorted(s for s in ALLOWED_STATUSES if s))}",
+        )
     try:
-        return await feed.markets(status=status, category=category, limit=limit)
+        return await feed.markets(
+            status=status, category=category, limit=limit, offset=offset
+        )
     except LiveUnavailableError as exc:
         raise _unavailable(exc) from exc
 

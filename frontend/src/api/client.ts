@@ -111,6 +111,9 @@ export interface LiveMarket {
   tags: string[];
   accepting_orders: boolean;
   closed: boolean;
+  resolved: boolean;
+  winning_outcome_index: number | null;
+  winning_outcome: string | null;
   best_bid: number | null;
   best_ask: number | null;
   mid_price: number | null;
@@ -683,12 +686,22 @@ export class ApiClient {
     return this.request('/api/v4/prediction/live/status', {}, false);
   }
   getLiveMarkets(
-    params: { status?: string; category?: string; limit?: number } = {}
-  ): Promise<{ markets: LiveMarket[]; total: number; source: string }> {
+    params: { status?: string; category?: string; limit?: number; offset?: number } = {}
+  ): Promise<{
+    markets: LiveMarket[]
+    total: number
+    status: string
+    offset: number
+    limit: number
+    has_more: boolean
+    next_offset: number | null
+    source: string
+  }> {
     const q = new URLSearchParams();
     if (params.status) q.set('status', params.status);
     if (params.category) q.set('category', params.category);
     if (params.limit) q.set('limit', String(params.limit));
+    if (params.offset) q.set('offset', String(params.offset));
     const qs = q.toString();
     return this.request(`/api/v4/prediction/live/markets${qs ? '?' + qs : ''}`, {}, false);
   }

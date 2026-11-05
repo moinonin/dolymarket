@@ -6,7 +6,7 @@ The public DexBuilder prediction surfaces are consumed and displayed today.
 
 | Surface | Upstream | Dolymarket route | State |
 |---|---|---|---|
-| Markets list | `GET /api/v4/prediction/markets` | `GET /api/v4/prediction/live/markets` | done |
+| Markets list | `GET /api/v4/prediction/markets` | `GET /api/v4/prediction/live/markets` | done (active + closed history via `status`/`offset`) |
 | Market detail | `GET /api/v4/prediction/markets/{id}` | `GET /api/v4/prediction/live/markets/{id}` | done |
 | Events | `GET /api/v4/prediction/events` | `GET /api/v4/prediction/live/events` | done |
 | Order book | `GET /api/v4/prediction/tokens/{id}/order_book` | `GET /api/v4/prediction/live/tokens/{id}/order_book` | done |
@@ -25,7 +25,7 @@ price chart and trade tape. See [Live DexBuilder data](live-data.md).
 
 | Endpoint | Status | Notes |
 |---|---|---|
-| GET /api/v4/prediction/markets | 200 | live markets; `status=active` for open markets |
+| GET /api/v4/prediction/markets | 200 | live markets; `status=active` for open markets, `status=closed` for the resolved history (`offset` pages back) |
 | GET /api/v4/prediction/markets/{id} | 200 | best_bid/ask, last_trade_price |
 | GET /api/v4/prediction/markets/{id}/trades | 200 | public trade history |
 | GET /api/v4/prediction/tokens/{id}/order_book | 200 | real asks/bids |
@@ -60,6 +60,7 @@ price chart and trade tape. See [Live DexBuilder data](live-data.md).
 
 ## TODO
 - [x] Obtain live public DexBuilder data without credentials and display it (markets, quotes, books, candles, trades, tags, time).
+- [x] Historical / resolved markets: `status=resolved` maps to upstream `closed`, `offset` pages back through the history, and the winner is derived from the settlement prices.
 - [x] Implement the remaining backend surfaces: tags, bulk prices, user trades, settled positions, time, trades, candlesticks, token market.
 - [x] Frontend: TagsPage, UserTradesPage, SettledPositionsPage, MarketDetailPage, Live markets + live market detail, dexbuilder proxy client methods and nav wiring.
 - [ ] Obtain DexBuilder API credentials and the official REST HMAC spec; verify usertrades/positions/assets/account_book/fee/claims end-to-end.

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Eye, History, Loader2, RefreshCw, WifiOff } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Eye, History, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { api, type Candle, type LiveMarket, type LiveTrade } from '../api/client'
 import OrderBookLadder from '../components/OrderBookLadder'
 import { Skeleton } from '../components/ui'
@@ -134,6 +134,17 @@ export default function LiveMarketDetailPage({
           markets requires a connected DexBuilder account.
         </span>
       </div>
+
+      {(market.resolved || market.status === 'CLOSED') && (
+        <div className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-700/40 bg-emerald-950/25 px-3.5 py-2.5 text-xs text-emerald-200/90">
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {market.winning_outcome_index != null && market.outcomes?.[market.winning_outcome_index]
+              ? `Resolved — ${market.outcomes[market.winning_outcome_index]} won (settled at 1.00 / 0.00).`
+              : 'Closed — the upstream does not report a settled outcome for this market.'}
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-rose-800/60 bg-rose-950/40 p-3 text-xs text-rose-200">

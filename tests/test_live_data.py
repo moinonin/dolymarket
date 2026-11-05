@@ -13,6 +13,7 @@ from app.services.live_data import (
     normalize_event,
     normalize_market,
     normalize_order_book,
+    normalize_status,
     normalize_tags,
     normalize_trades,
     to_decimal,
@@ -98,6 +99,67 @@ def test_normalize_market_handles_missing_quotes():
     assert payload["best_ask"] is None
     assert payload["mid_price"] is None
     assert payload["last_trade_price"] is None
+
+
+CLOSED_MARKET = {
+    "market_id": "2316216",
+    "event_id": "507693",
+    "title": "Will Paris Saint-Germain FC win on 2026-05-30?",
+    "status": "closed",
+    "closed": True,
+    "accepting_orders": False,
+    "volume": "38427417.853250585",
+    "liquidity": "0",
+    "outcomes": [
+        {"outcome": "Yes", "token_id": "tok-y", "clob_token_id": "tok-y", "price": "0"},
+        {"outcome": "No", "token_id": "tok-n", "clob_token_id": "tok-n", "price": "1"},
+    ],
+}
+
+
+def test_normalize_closed_market_derives_the_winner():
+    payload = normalize_market(CLOSED_MARKET)
+    assert payload["resolved"] is True
+    assert payload["status"] == "CLOSED"
+    assert payload["winning_outcome_index"] == 1
+    assert payload["winning_outcome"] == "No"
+
+
+def test_normalize_closed_market_without_a_single_winner():
+    ambiguous = {
+        **CLOSED_MARKET,
+        "outcomes": [
+            {"outcome": "Yes", "token_id": "tok-y", "price": "0.5"},
+            {"outcome": "No", "token_id": "tok-n", "price": "0.5"},
+        ],
+    }
+    payload = normalize_market(ambiguous)
+    assert payload["resolved"] is True
+    assert payload["winning_outcome_index"] is None
+    assert payload["winning_outcome"] is None
+
+
+def test_active_market_never_reports_a_winner():
+    payload = normalize_market(
+        {
+            **CLOSED_MARKET,
+            "status": "active",
+            "closed": False,
+            "outcomes": [
+                {"outcome": "Yes", "token_id": "tok-y", "price": "1"},
+                {"outcome": "No", "token_id": "tok-n", "price": "0"},
+            ],
+        }
+    )
+    assert payload["resolved"] is False
+    assert payload["winning_outcome_index"] is None
+
+
+def test_normalize_status_maps_aliases_to_upstream_values():
+    assert normalize_status("active") == "active"
+    assert normalize_status("resolved") == "closed"
+    assert normalize_status("settled") == "closed"
+    assert normalize_status(None) == "closed"
 
 
 def test_normalize_order_book_sorts_best_price_first():
@@ -189,6 +251,37 @@ async def test_feed_raises_when_upstream_fails():
         await feed.markets(limit=1)
 
 
+async def test_feed_maps_resolved_alias_to_closed_and_paginates():
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(200, json={"items": [CLOSED_MARKET], "total": 1})
+
+    feed = LiveMarketFeed(make_client(handler), ttl=60)
+    payload = await feed.markets(status="resolved", limit=50, offset=100)
+    query = dict(seen[0].params)
+    assert query["status"] == "closed"
+    assert query["offset"] == "100"
+    assert query["limit"] == "50"
+    assert payload["status"] == "closed"
+    assert payload["offset"] == 100
+    assert payload["markets"][0]["winning_outcome"] == "No"
+
+
+async def test_feed_reports_more_pages_when_the_page_is_full():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"items": [CLOSED_MARKET, CLOSED_MARKET], "total": 2},
+        )
+
+    feed = LiveMarketFeed(make_client(handler), ttl=60)
+    payload = await feed.markets(status="closed", limit=2, offset=0)
+    assert payload["has_more"] is True
+    assert payload["next_offset"] == 2
+
+
 async def test_feed_serves_stale_value_when_upstream_breaks():
     state = {"calls": 0}
 
@@ -275,6 +368,22 @@ async def test_live_markets_route(client, live_overrides):
     assert body["source"] == "dexbuilder"
     assert body["markets"][0]["id"] == "631018"
     assert body["markets"][0]["tokens"][0]["price"] == 0.03
+    assert body["offset"] == 0
+    assert body["has_more"] is False
+    assert body["next_offset"] is None
+
+
+async def test_live_markets_route_rejects_unknown_status(client, live_overrides):
+    r = await client.get("/api/v4/prediction/live/markets?status=bogus")
+    assert r.status_code == 422
+    assert "status must be one of" in r.json()["detail"]
+
+
+async def test_live_markets_route_accepts_resolved_alias(client, live_overrides):
+    r = await client.get("/api/v4/prediction/live/markets?status=resolved&offset=100")
+    assert r.status_code == 200
+    assert r.json()["status"] == "closed"
+    assert r.json()["offset"] == 100
 
 
 async def test_live_market_detail_route(client, live_overrides):

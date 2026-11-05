@@ -138,7 +138,13 @@ class DexBuilderClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_markets(self, status: str | None = None, category: str | None = None, limit: int = 50):
+    async def get_markets(
+        self,
+        status: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ):
         params = {}
         if status:
             params["status"] = status
@@ -146,6 +152,8 @@ class DexBuilderClient:
             params["category"] = category
         if limit:
             params["limit"] = limit
+        if offset:
+            params["offset"] = offset
         return await self._request("GET", "/api/v4/prediction/markets", params=params or None)
 
     async def get_market(self, market_id: str):
