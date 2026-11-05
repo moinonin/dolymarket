@@ -1,5 +1,18 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { api, getStoredToken } from '../api/client'
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from 'react'
+import {
+  api,
+  getStoredToken,
+  setStoredToken,
+  type OAuthProviderInfo,
+} from '../api/client'
+import AuthProviders, { OAUTH_MESSAGE_TYPE } from './AuthProviders'
+import { useToast } from '../context/toast'
 
 interface AuthUser {
   id: string
@@ -11,6 +24,7 @@ interface AuthContextValue {
   openAuth: (mode: 'login' | 'register') => void
   logout: () => void
   refreshUser: () => Promise<void>
+  providers: OAuthProviderInfo[]
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -18,11 +32,14 @@ const AuthContext = createContext<AuthContextValue>({
   openAuth: () => {},
   logout: () => {},
   refreshUser: async () => {},
+  providers: [],
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [authModal, setAuthModal] = useState<{ mode: 'login' | 'register' } | null>(null)
+  const [providers, setProviders] = useState<OAuthProviderInfo[]>([])
+  const { push } = useToast()
 
   const applyToken = useCallback(async () => {
     const token = getStoredToken()
@@ -31,21 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
     try {
-      const bal = await api.getBalance()
-      setUser((prev) =>
-        prev ? { ...prev, id: bal.user_id } : { id: bal.user_id, email: '' }
-      )
-      try {
-        const res = await fetch('/api/v1/collateral/balance', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setUser({ id: data.user_id, email: data.email ?? '' })
-        }
-      } catch {
-        /* ignore */
-      }
+      const me = await api.getMe()
+      setUser({ id: me.id, email: me.email })
     } catch {
       setUser(null)
     }
@@ -53,14 +57,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const bal = await api.getBalance()
-      setUser({ id: bal.user_id, email: user?.email || '' })
+      const me = await api.getMe()
+      setUser({ id: me.id, email: me.email })
     } catch {
       setUser(null)
     }
-  }, [user?.email])
+  }, [])
 
-  const userRef = { user, openAuth: (mode: 'login' | 'register') => setAuthModal({ mode }), logout: () => { api.logout(); setUser(null) }, refreshUser }
+  // Restore the session from the stored token on first paint.
+  useEffect(() => {
+    void applyToken()
+  }, [applyToken])
+
+  // Which federated providers this deployment supports.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listAuthProviders()
+      .then((res) => {
+        if (!cancelled) setProviders(res.providers)
+      })
+      .catch(() => {
+        if (!cancelled) setProviders([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Federated sign-in hand-off: the popup (or this tab) receives a one-time
+  // code, redeems it for a JWT and notifies the opener window.
+  useEffect(() => {
+    async function complete(code: string) {
+      try {
+        const res = await api.oauthExchange(code)
+        setUser({ id: res.user.id, email: res.user.email })
+        if (window.opener) {
+          window.opener.postMessage(
+            { type: OAUTH_MESSAGE_TYPE, token: res.access_token, user: res.user },
+            window.location.origin
+          )
+          window.close()
+        }
+      } catch (err: any) {
+        push(err.message || 'Federated sign-in failed', 'error')
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('oauth_code')
+    if (code) {
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + window.location.hash
+      )
+      void complete(code)
+    }
+
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return
+      const data = event.data
+      if (data?.type !== OAUTH_MESSAGE_TYPE || !data?.token) return
+      setStoredToken(data.token)
+      setUser({ id: data.user.id, email: data.user.email })
+    }
+
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [push])
+
+  const userRef = {
+    user,
+    openAuth: (mode: 'login' | 'register') => setAuthModal({ mode }),
+    logout: () => {
+      api.logout()
+      setUser(null)
+    },
+    refreshUser,
+    providers,
+  }
 
   return (
     <AuthContext.Provider value={userRef}>
@@ -68,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {authModal && (
         <AuthModal
           mode={authModal.mode}
+          providers={providers}
           onClose={() => setAuthModal(null)}
           onAuthed={async (u) => {
             setUser({ id: u.id, email: u.email })
@@ -83,17 +160,16 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
-export async function refreshAuthUser() {}
-
 interface AuthModalProps {
   mode: 'login' | 'register'
+  providers: OAuthProviderInfo[]
   onClose: () => void
   onAuthed: (user: { id: string; email: string }) => void
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
+export function AuthModal({ mode, providers, onClose, onAuthed }: AuthModalProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -119,7 +195,10 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -167,7 +246,11 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
           onClick={submit}
           className="mt-5 w-full rounded-lg bg-emerald-500 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {submitting ? 'Please wait…' : mode === 'register' ? 'Create Account' : 'Sign In'}
+          {submitting
+            ? 'Please wait…'
+            : mode === 'register'
+              ? 'Create Account'
+              : 'Sign In'}
         </button>
         {mode === 'register' && (
           <p className="mt-3 text-center text-xs text-slate-500">
@@ -175,6 +258,10 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
             <span className="text-slate-300">trader-demo-1234</span>
           </p>
         )}
+
+        <div className="mt-5">
+          <AuthProviders providers={providers} onAuthed={onAuthed} />
+        </div>
       </div>
     </div>
   )

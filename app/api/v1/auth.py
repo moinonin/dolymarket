@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core import security
 from app.db.session import get_async_session
 from app.models.domain import User
@@ -58,3 +59,30 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_async_se
         )
     token = security.create_access_token(user.id, user.email)
     return TokenResponse(access_token=token, user=_user_payload(user))
+
+
+@router.get("/me")
+async def me(user: User = Depends(get_current_user)):
+    """Profile of the authenticated account."""
+    return _user_payload(user)
+
+
+@router.post("/api-key")
+async def rotate_api_key(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Issue (or rotate) an HMAC API key for algorithmic trading.
+
+    The raw key is returned once. Only its digest is persisted, so it cannot
+    be recovered from the database afterwards.
+    """
+    api_key, digest = security.generate_api_key()
+    user.api_key = digest
+    await session.flush()
+    return {
+        "api_key": api_key,
+        "signature_scheme": "HMAC-SHA256",
+        "message_format": "X-TIMESTAMP + METHOD + PATH + BODY",
+        "headers": ["X-API-KEY", "X-TIMESTAMP", "X-SIGNATURE"],
+    }

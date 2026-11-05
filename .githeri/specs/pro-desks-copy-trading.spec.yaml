@@ -1,0 +1,466 @@
+task_id: pro-desks-copy-trading
+status: active
+archetype: transactional_ledger
+summary: "Pro Desks: non-custodial copy trading. Each desk fill is mirrored proportionally into each follower's own collateral account with deterministic sizing, a deterministic track record, and no pooled capital, share, net-asset-value or result-based fee."
+entrypoint: app/main.py
+scope: "Additive brownfield change to the existing FastAPI + React Dolymarket repository. Extend app/models/domain.py, app/api/v1/, app/api/v4/orders.py, app/api/v4/admin.py, app/main.py and frontend/src/. Do not scaffold a new project or regenerate existing files."
+out_of_scope:
+  - "Pooled or commingled capital, vault shares, share accounting, net-asset-value marking, redemption routes"
+  - "Result-based fees, carried interest, high-water marks, rebates, bonuses or prizes tied to trading results"
+  - "Leverage, margin or borrowing"
+  - "Copying the desk operator's untagged personal orders"
+  - "More than one desk per user account"
+  - "Liquidity-provision or market-making desks and quoting obligations"
+assumptions:
+  - "The change is additive: the pre-change endpoint contract in .githeri/baseline.json must keep resolving"
+  - "Copy orders reuse the existing collateral service and matching engine rather than a parallel money path"
+business_rules:
+  - name: "Non-Custodial Copying"
+    formula: "A copy order is funded only from the follower's own CollateralAccount; the platform holds no pooled balance, no desk share and no net-asset-value."
+  - name: "Atomic Balance Reservation"
+    formula: "Every copy order locks the follower collateral row with with_for_update and is rejected when available_usdc = balance - locked_balance is insufficient; conservation: balance + locked_balance changes only through LOCK, RELEASE, FEE, PAYOUT, DEPOSIT and WITHDRAWAL ledger entries."
+  - name: "Exact Copy Sizing"
+    formula: "budget_usdc = min(gross_cost_usdc, remaining_market, remaining_total, available_usdc); target_shares = budget_usdc / price, truncated to 4 decimal places."
+  - name: "Exactly-Once Mirroring"
+    formula: "At most one CopyJob per (follower_user_id, source_fill_id), enforced by a database unique constraint."
+  - name: "Anti Front-Running"
+    formula: "While an ACTIVE desk holds a non-zero DeskPosition in a market, the operator's untagged order in that market returns HTTP 409 DESK_MARKET_CONFLICT."
+  - name: "Deterministic Track Record"
+    formula: "net_pnl_usdc = realized_pnl_usdc - fees_paid_usdc; roi_pct = net_pnl_usdc / max(cost_basis_usdc, 0.0100) * 100, computed only from stored source fills and settled desk positions."
+  - name: "Desk Lifecycle Guards"
+    formula: "A desk accepts followers, accepts desk-tagged orders and mirrors fills only while status is ACTIVE; ARCHIVED is terminal."
+  - name: "Decimal Money"
+    formula: "Balances, prices, fees, shares and caps use fixed-point Decimal and Numeric columns; binary floating point arithmetic is not used for them."
+  - name: "Admin Authorization"
+    formula: "Desk review routes require User.is_admin = True, else HTTP 403 ADMIN_REQUIRED."
+acceptance_criteria:
+  - test: "Track-record worked example"
+    steps: "Seed two settled desk positions and 0.5000 of fees; assert cost_basis_usdc=67.5000, payout_usdc=100.0000, realized_pnl_usdc=32.5000, net_pnl_usdc=32.0000, win_rate=0.5000, roi_pct=47.4074, max_drawdown_pct=45.8333"
+  - test: "Copy sizing worked example"
+    steps: "leader_shares=200.0000, copy_ratio=0.2500, price=0.4000, equity=200.0000, per_market_cap=50.0000, max_per_market_pct=20.00, max_total_pct=25.00; assert budget_usdc=40.0000, target_shares=100.0000, limit_breached=true"
+  - test: "Change is additive"
+    steps: "Run pytest tests/test_route_baseline.py and assert every endpoint in .githeri/baseline.json still resolves"
+endpoints:
+  - method: GET
+    path: /api/v1/desks
+    description: "Public ACTIVE desk leaderboard with track-record fields"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks
+    description: "Create the caller's desk in DRAFT"
+    expected_status: 201
+  - method: GET
+    path: /api/v1/desks/mine
+    description: "The caller's own desk and track record"
+    expected_status: 200
+  - method: GET
+    path: /api/v1/desks/{desk_id}
+    description: "Public desk profile and track record"
+    expected_status: 200
+  - method: PUT
+    path: /api/v1/desks/{desk_id}
+    description: "Update name and description while DRAFT or REJECTED"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks/{desk_id}/submit
+    description: "Submit desk for review when thresholds are met"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks/{desk_id}/suspend
+    description: "Operator self-suspend an ACTIVE desk"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks/{desk_id}/archive
+    description: "Irreversibly archive a desk"
+    expected_status: 200
+  - method: GET
+    path: /api/v1/desks/{desk_id}/track-record
+    description: "Track-record object and realized equity curve"
+    expected_status: 200
+  - method: GET
+    path: /api/v1/desks/{desk_id}/followers
+    description: "Desk owner only: follower list without balances"
+    expected_status: 200
+  - method: GET
+    path: /api/v1/desks/{desk_id}/copy-jobs
+    description: "Desk owner only: copy-job counts and recent jobs"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks/{desk_id}/follow
+    description: "Follow an ACTIVE desk with a copy ratio and caps"
+    expected_status: 201
+  - method: PUT
+    path: /api/v1/desks/{desk_id}/follow
+    description: "Update copy ratio, caps or pause the follow"
+    expected_status: 200
+  - method: DELETE
+    path: /api/v1/desks/{desk_id}/follow
+    description: "Unfollow a desk"
+    expected_status: 204
+  - method: GET
+    path: /api/v1/copy-jobs
+    description: "The caller's own copy jobs"
+    expected_status: 200
+  - method: POST
+    path: /api/v4/prediction/admin/desks/{desk_id}/approve
+    description: "Admin: PENDING_REVIEW to ACTIVE"
+    expected_status: 200
+  - method: POST
+    path: /api/v4/prediction/admin/desks/{desk_id}/reject
+    description: "Admin: PENDING_REVIEW to REJECTED with a reason"
+    expected_status: 200
+  - method: POST
+    path: /api/v4/prediction/admin/desks/{desk_id}/suspend
+    description: "Admin: suspend any non-archived desk"
+    expected_status: 200
+  - method: POST
+    path: /api/v4/prediction/orders
+    description: "Existing order route, gains an optional desk_id tag"
+    expected_status: 201
+environment:
+  packages:
+    - fastapi
+    - sqlalchemy
+    - pydantic
+    - pytest
+    - pytest-asyncio
+    - httpx
+    - aiosqlite
+  env_vars:
+    DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    JWT_SECRET: "test-secret-key-1234567890abcdef"
+    COPY_TRADING_ENABLED: "true"
+    DESK_MIN_CLOSED_POSITIONS: "10"
+    DESK_MIN_DAYS_ACTIVE: "14"
+    DESK_MIN_COPY_RATIO: "0.0100"
+    DESK_MAX_COPY_RATIO: "1.0000"
+    DESK_DEFAULT_PER_MARKET_CAP_USDC: "50.0000"
+    DESK_MAX_PER_MARKET_EQUITY_PCT: "20"
+    DESK_MAX_TOTAL_EQUITY_PCT: "25"
+    DESK_STALENESS_BPS: "200"
+    DESK_DRAWDOWN_BREAKER_PCT: "20"
+test_fixtures: []
+global_verification:
+  - "pytest tests/test_desks.py tests/test_desk_follow.py tests/test_copy_engine.py tests/test_desk_track_record.py tests/test_desk_risk_controls.py"
+  - "pytest tests/"
+  - "npm --prefix frontend run build"
+local_goals:
+  - id: L1
+    description: "INSPECT: confirm the existing model module and its conventions before extending it"
+    type: inspect
+    verification:
+      type: file_exists
+      path: "app/models/domain.py"
+      expect:
+        exists: true
+  - id: L2
+    description: "MODIFY: append Desk, DeskFollower, DeskPosition and CopyJob to app/models/domain.py, add User.is_admin, and add Order.desk_id and Order.copy_source_fill_id"
+    type: create
+    blueprint: |
+      # Appended to the existing app/models/domain.py. Reuse the helpers that
+      # already live in that module; do not redeclare Base, _uuid or _now_utc.
+      from sqlalchemy import Boolean, Column, ForeignKey, Numeric, String, Text, UniqueConstraint
+      from sqlalchemy.orm import relationship
+
+      class Desk(Base):
+          __tablename__ = "desks"
+          __table_args__ = (UniqueConstraint("owner_user_id", name="uq_desk_owner"),)
+          id = Column(String(36), primary_key=True, default=_uuid)
+          owner_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+          name = Column(String(80), nullable=False)
+          slug = Column(String(96), unique=True, nullable=False)
+          status = Column(String(20), nullable=False, default="DRAFT", index=True)
+          review_note = Column(Text, nullable=True)
+          owner = relationship("User", back_populates="desk")
+
+      # CopyJob carries the exactly-once constraint:
+      # UniqueConstraint("follower_user_id", "source_fill_id", name="uq_copy_follower_fill")
+    acceptance_criteria:
+      - test: "New models are present alongside the existing ones"
+        steps: "Read app/models/domain.py and confirm Desk, DeskFollower, DeskPosition and CopyJob exist and that User, Order, Base and the module helpers were not replaced"
+      - test: "Precision is fixed-point"
+        steps: "Confirm money, price, share, ratio and percentage columns use Numeric, not float"
+    verification:
+      type: file_exists
+      path: "app/models/domain.py"
+      expect:
+        exists: true
+        content_contains: "class CopyJob"
+  - id: L3
+    description: "INSPECT: confirm the collateral service functions that copy orders must reuse"
+    type: inspect
+    verification:
+      type: file_exists
+      path: "app/services/collateral.py"
+      expect:
+        exists: true
+        content_contains: "def lock_for_buy"
+  - id: L4
+    description: "CREATE: deterministic track-record module in app/services/desk_track_record.py"
+    type: create
+    blueprint: |
+      from decimal import ROUND_DOWN, Decimal
+
+      Q4 = Decimal("0.0001")
+
+      async def compute_track_record(session, desk_id: str) -> dict:
+          """cost_basis_usdc, payout_usdc, realized_pnl_usdc, fees_paid_usdc,
+          net_pnl_usdc, closed_positions, winning_positions, win_rate, roi_pct,
+          avg_win_usdc, avg_loss_usdc, max_drawdown_pct, rolling_drawdown_30d_pct,
+          active_follower_count, copied_fill_count."""
+          return {}
+    acceptance_criteria:
+      - test: "Worked example is exact"
+        steps: "Assert roi_pct=47.4074 and max_drawdown_pct=45.8333 for the seeded two-position desk"
+      - test: "Empty track record is safe"
+        steps: "Assert a desk with no settled positions returns win_rate=0.0000 and does not raise"
+    verification:
+      type: file_exists
+      path: "app/services/desk_track_record.py"
+      expect:
+        exists: true
+        content_contains: "compute_track_record"
+  - id: L5
+    description: "CREATE: copy engine with the exact sizing formula and exactly-once mirroring in app/services/copy_engine.py"
+    type: create
+    blueprint: |
+      from decimal import ROUND_DOWN, Decimal
+
+      from app.services import collateral
+
+      COPY_STATUSES = (
+          "PENDING", "FILLED", "PARTIALLY_FILLED", "SKIPPED_INSUFFICIENT_FUNDS",
+          "SKIPPED_STALE", "SKIPPED_NO_LIQUIDITY", "SKIPPED_MARKET_CLOSED",
+          "SKIPPED_LIMIT_BREACHED", "FAILED",
+      )
+
+      async def mirror_source_fill(session, source_fill) -> list:
+          # Market status, reference quote, staleness guard, sizing, then at most
+          # one IOC limit copy order per ACTIVE follower. The follower collateral
+          # row is locked with collateral.get_or_create_account(..., for_update=True)
+          # before the sufficient-balance check. Unique (follower_user_id,
+          # source_fill_id) makes it exactly-once, and fills whose own order has
+          # copy_source_fill_id set are never copied.
+          return []
+    acceptance_criteria:
+      - test: "Sizing matches the worked example"
+        steps: "Assert budget_usdc=40.0000 and target_shares=100.0000, and that insufficient funds yields SKIPPED_INSUFFICIENT_FUNDS with no balance change"
+      - test: "Skips are correct"
+        steps: "Assert staleness beyond DESK_STALENESS_BPS yields SKIPPED_STALE, a closed market yields SKIPPED_MARKET_CLOSED and an empty reference side yields SKIPPED_NO_LIQUIDITY"
+    verification:
+      type: file_exists
+      path: "app/services/copy_engine.py"
+      expect:
+        exists: true
+        content_contains: "mirror_source_fill"
+  - id: L6
+    description: "CREATE: desk, follower and copy-job routes in app/api/v1/desks.py"
+    type: create
+    blueprint: |
+      from fastapi import APIRouter, Depends, HTTPException
+      from pydantic import BaseModel, Field
+
+      # Resolved paths for every route are declared in the spec `endpoints` list.
+      # Idiomatic to this repository: give the router a prefix and mount it in
+      # app/main.py beside the existing include_router calls.
+      from app.api.deps import get_current_user
+
+      router = APIRouter(prefix="/api/v1", tags=["desks"])
+
+      class FollowRequest(BaseModel):
+          copy_ratio: str | None = None
+          per_market_cap_usdc: str | None = None
+          max_per_market_pct: str | None = None
+          max_total_pct: str | None = None
+
+      async def follow_desk(desk_id: str, body: FollowRequest, user=Depends(get_current_user)):
+          # 409 DESK_NOT_ACTIVE | DESK_ALREADY_FOLLOWED | DESK_SELF_FOLLOW
+          # 422 COPY_RATIO_OUT_OF_RANGE | CAP_OUT_OF_RANGE | INSUFFICIENT_BALANCE
+          return {"status": "ACTIVE"}
+    acceptance_criteria:
+      - test: "Route ordering is correct"
+        steps: "Assert GET /api/v1/desks/mine resolves to the caller's desk and not to the {desk_id} route"
+      - test: "Ownership boundaries hold"
+        steps: "Assert a third party reading another desk's followers or copy jobs receives 403 and an unknown id receives 404"
+    verification:
+      type: file_exists
+      path: "app/api/v1/desks.py"
+      expect:
+        exists: true
+        content_contains: "follow_desk"
+  - id: L7
+    description: "MODIFY: extend the existing CreateOrderRequest and submit_order in app/api/v4/orders.py with an optional desk_id tag and the conflict rules"
+    type: create
+    blueprint: |
+      # Delta to the existing app/api/v4/orders.py. Add one optional field to the
+      # existing CreateOrderRequest and run the desk guard inside submit_order
+      # before the engine is called. Do not add a second order route.
+      from app.models.domain import Desk
+
+      def _assert_desk_tag(desk, user, market_id, desk_position):
+          if desk is None:
+              # untagged personal order in a market where the caller's ACTIVE
+              # desk holds a position -> 409 DESK_MARKET_CONFLICT
+              return None
+          if desk.owner_user_id != user.id:
+              raise PermissionError("DESK_ORDER_FORBIDDEN")  # -> HTTP 403
+          if desk.status != "ACTIVE":
+              raise LookupError("DESK_NOT_ACTIVE")  # -> HTTP 409
+          return desk.id
+    acceptance_criteria:
+      - test: "Desk tagging is owner-scoped"
+        steps: "Assert the owner's tagged order returns 201, another user's tagged order returns 403 DESK_ORDER_FORBIDDEN and an unknown desk_id returns 404"
+      - test: "Existing behavior is preserved"
+        steps: "Assert requests without desk_id keep the X-Idempotency-Key replay behavior unchanged"
+    verification:
+      type: file_exists
+      path: "app/api/v4/orders.py"
+      expect:
+        exists: true
+        content_contains: "desk_id"
+  - id: L8
+    description: "MODIFY: add the desk review routes to the existing admin router in app/api/v4/admin.py, guarded by User.is_admin"
+    type: create
+    blueprint: |
+      # Delta to the existing app/api/v4/admin.py (prefix /api/v4/prediction/admin).
+      from fastapi import Depends, HTTPException
+
+      from app.api.deps import get_current_user
+
+      async def _require_admin(user=Depends(get_current_user)):
+          # Authenticated but is_admin is False -> HTTP 403 ADMIN_REQUIRED
+          # Anonymous -> HTTP 401
+          if not getattr(user, "is_admin", False):
+              raise PermissionError("ADMIN_REQUIRED")
+          return user
+    acceptance_criteria:
+      - test: "Admin authorization is enforced"
+        steps: "Assert an authenticated caller without is_admin receives 403 ADMIN_REQUIRED and an anonymous caller receives 401"
+    verification:
+      type: file_exists
+      path: "app/api/v4/admin.py"
+      expect:
+        exists: true
+        content_contains: "is_admin"
+  - id: L9
+    description: "MODIFY: mount the new desks router in app/main.py beside the existing include_router calls"
+    type: create
+    blueprint: |
+      # Delta to the existing app/main.py. Add the import next to the other
+      # app.api.v1 imports and one include_router call next to the existing ones.
+      from app.api.v1 import desks as desks_router
+
+      app.include_router(desks_router.router)
+    acceptance_criteria:
+      - test: "Mounting does not disturb existing routes"
+        steps: "Assert app/main.py still exposes every endpoint in .githeri/baseline.json"
+    verification:
+      type: file_exists
+      path: "app/main.py"
+      expect:
+        exists: true
+        content_contains: "desks_router"
+  - id: L10
+    description: "CREATE: public desk leaderboard and desk detail views in the frontend"
+    type: create
+    blueprint: |
+      // frontend/src/pages/DesksPage.tsx and DeskDetailPage.tsx, wired into the
+      // existing hash router in frontend/src/App.tsx. Read every figure from the
+      // typed api client; no mock data arrays. Each view handles loading, empty
+      // and error states and shows "Past results, not indicative of future results."
+      import React from 'react'
+      import { api } from '../api/client'
+
+      export default function DesksPage() {
+        return <div className="mx-auto max-w-7xl px-6 pb-24" />
+      }
+    acceptance_criteria:
+      - test: "Views are wired to the API"
+        steps: "Confirm no mock data array remains and no hardcoded localhost URL is present"
+    verification:
+      type: file_exists
+      path: "frontend/src/pages/DesksPage.tsx"
+      expect:
+        exists: true
+        content_contains: "api"
+  - id: L11
+    description: "VERIFY: desk lifecycle, ownership and admin authorization"
+    type: verify
+    acceptance_criteria:
+      - test: "Lifecycle guards hold"
+        steps: "Assert a second desk for the same owner returns 409 DESK_ALREADY_EXISTS and ARCHIVED is terminal"
+      - test: "Admin guard holds"
+        steps: "Assert a non-admin review call returns 403 ADMIN_REQUIRED and an anonymous call returns 401"
+    verification:
+      type: cli
+      command: "pytest tests/test_desks.py"
+      expect:
+        exit_code: 0
+  - id: L12
+    description: "VERIFY: copy engine sizing, skips and exactly-once mirroring"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_copy_engine.py"
+      expect:
+        exit_code: 0
+  - id: L13
+    description: "VERIFY: deterministic track record against the worked example"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_desk_track_record.py"
+      expect:
+        exit_code: 0
+  - id: L14
+    description: "VERIFY: follow rules, conflict rules and suspension triggers"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_desk_follow.py tests/test_desk_risk_controls.py"
+      expect:
+        exit_code: 0
+  - id: L15
+    description: "VERIFY: the change is additive, not a rewrite"
+    type: verify
+    acceptance_criteria:
+      - test: "Baseline endpoints are intact"
+        steps: "Assert every endpoint in .githeri/baseline.json still resolves"
+    verification:
+      type: cli
+      command: "pytest tests/test_route_baseline.py"
+      expect:
+        exit_code: 0
+  - id: L16
+    description: "VERIFY: full regression suite"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/"
+      expect:
+        exit_code: 0
+  - id: L17
+    description: "VERIFY: public desk list resolves"
+    type: verify
+    verification:
+      type: http
+      method: GET
+      url: "http://localhost:8000/api/v1/desks"
+      expect:
+        status: 200
+        body_contains: "desks"
+  - id: L18
+    description: "VERIFY: failure boundary - an untagged order in a market where the caller's ACTIVE desk holds a position"
+    type: verify
+    verification:
+      type: http
+      method: POST
+      url: "http://localhost:8000/api/v4/prediction/orders"
+      expect:
+        status: 409
+context:
+  language: Python
+  framework: FastAPI
+  orm: SQLAlchemy
+  test_framework: pytest
+  frontend: "Vite + React + TypeScript + Tailwind v4 + lucide-react"

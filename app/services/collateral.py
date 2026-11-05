@@ -15,13 +15,15 @@ def q4(value) -> Decimal:
 
 
 async def get_or_create_account(
-    session: AsyncSession, user_id: str
+    session: AsyncSession, user_id: str, for_update: bool = False
 ) -> CollateralAccount:
-    account = (
-        await session.execute(
-            select(CollateralAccount).where(CollateralAccount.user_id == user_id)
-        )
-    ).scalar_one_or_none()
+    stmt = select(CollateralAccount).where(CollateralAccount.user_id == user_id)
+    if for_update:
+        # Row-level lock. PostgreSQL serialises concurrent balance mutations
+        # for the same account; SQLite ignores FOR UPDATE but keeps the same
+        # code path for hermetic tests.
+        stmt = stmt.with_for_update()
+    account = (await session.execute(stmt)).scalar_one_or_none()
     if account is None:
         account = CollateralAccount(user_id=user_id, balance=0, locked_balance=0)
         session.add(account)
@@ -33,17 +35,19 @@ async def deposit(session: AsyncSession, user: User, amount) -> CollateralAccoun
     amt = q4(amount)
     if amt <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
-    account = await get_or_create_account(session, user.id)
+    account = await get_or_create_account(session, user.id, for_update=True)
     account.balance = q4(Decimal(str(account.balance)) + amt)
     await _ledger(session, account, "DEPOSIT", amt)
     return account
 
 
-async def withdraw(session: AsyncSession, user: User, amount) -> CollateralAccount:
+async def withdraw(
+    session: AsyncSession, user: User, amount, for_update: bool = True
+) -> CollateralAccount:
     amt = q4(amount)
     if amt <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be positive")
-    account = await get_or_create_account(session, user.id)
+    account = await get_or_create_account(session, user.id, for_update=for_update)
     available = Decimal(str(account.balance)) - Decimal(str(account.locked_balance))
     if amt > available:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
@@ -53,10 +57,14 @@ async def withdraw(session: AsyncSession, user: User, amount) -> CollateralAccou
 
 
 async def lock_for_buy(
-    session: AsyncSession, user_id: str, cost: Decimal
+    session: AsyncSession, user_id: str, cost: Decimal, for_update: bool = True
 ) -> CollateralAccount:
-    """Lock ``cost`` collateral for a BUY order; 400 on insufficient funds."""
-    account = await get_or_create_account(session, user_id)
+    """Lock ``cost`` collateral for a BUY order; 400 on insufficient funds.
+
+    The account row is locked during the check-and-update so two concurrent
+    orders cannot both observe the same available balance.
+    """
+    account = await get_or_create_account(session, user_id, for_update=for_update)
     available = Decimal(str(account.balance)) - Decimal(str(account.locked_balance))
     if cost > available:
         raise HTTPException(status_code=400, detail="Insufficient available balance")
@@ -112,6 +120,6 @@ async def _ledger(
 
 
 async def resolve_account(
-    session: AsyncSession, user_id: str
+    session: AsyncSession, user_id: str, for_update: bool = False
 ) -> CollateralAccount:
-    return await get_or_create_account(session, user_id)
+    return await get_or_create_account(session, user_id, for_update=for_update)

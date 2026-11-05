@@ -51,9 +51,15 @@ async def drop_db() -> None:
 
 
 async def create_test_db() -> None:
-    """Reset schema for hermetic test isolation."""
+    """Reset schema and in-memory runtime state for hermetic test isolation."""
+    from app.core.ratelimit import rate_limiter
+    from app.engine.book import reset_sequence_state
     from app.models.domain import Base
+    from app.ws.sequence import stream_sequencer
 
+    rate_limiter.reset()
+    reset_sequence_state()
+    stream_sequencer.reset()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)

@@ -3,26 +3,31 @@ import {
   BarChart3,
   Briefcase,
   Gavel,
+  Home,
   LineChart,
   LogIn,
   LogOut,
   ShieldCheck,
+  TrendingUp,
   UserPlus,
 } from 'lucide-react'
 import { ToastProvider } from './context/toast'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { setToastHandler } from './api/client'
 import { useToast } from './context/toast'
+import HomePage from './pages/HomePage'
 import MarketsPage from './pages/MarketsPage'
 import EventDetailPage from './pages/EventDetailPage'
 import PortfolioPage from './pages/PortfolioPage'
 import ResolutionPage from './pages/ResolutionPage'
+import DesksPage from './pages/DesksPage'
+import DeskDetailPage from './pages/DeskDetailPage'
 
 // Tiny hash router — path segments after '#'.
 function useHashRoute(): [string[], (to: string) => void] {
-  const [hash, setHash] = useState(window.location.hash.replace(/^#/, '') || '/markets')
+  const [hash, setHash] = useState(window.location.hash.replace(/^#/, ''))
   useEffect(() => {
-    const onChange = () => setHash(window.location.hash.replace(/^#/, '') || '/markets')
+    const onChange = () => setHash(window.location.hash.replace(/^#/, ''))
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
@@ -54,17 +59,38 @@ function ToastBridge() {
 function Shell() {
   const [route, navigate] = useHashRoute()
   const { user, openAuth, logout } = useAuth()
-  const section = route[0] || 'markets'
+  const section = route[0] || 'home'
+
+  const openEvent = (slug: string) => navigate(`event/${slug}`)
 
   let page: React.ReactNode
-  if (section === 'event' && route[1]) {
+  if (section === 'home') {
+    page = user ? (
+      <MarketsPage onOpenEvent={openEvent} />
+    ) : (
+      <HomePage
+        onOpenEvent={openEvent}
+        onOpenAuth={openAuth}
+        onBrowseMarkets={() => navigate('markets')}
+      />
+    )
+  } else if (section === 'desks' && route[1]) {
+    page = (
+      <DeskDetailPage
+        deskId={route[1]}
+        onBack={() => navigate(user ? 'desks' : 'home')}
+      />
+    )
+  } else if (section === 'desks') {
+    page = <DesksPage onOpenDesk={(id) => navigate(`desks/${id}`)} />
+  } else if (section === 'event' && route[1]) {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
   } else if (section === 'portfolio') {
     page = <PortfolioWrapper onNavigate={navigate} />
   } else if (section === 'resolution') {
     page = <ResolutionPage />
   } else {
-    page = <MarketsPage onOpenEvent={(slug) => navigate(`event/${slug}`)} />
+    page = <MarketsPage onOpenEvent={openEvent} />
   }
 
   return (
@@ -78,7 +104,7 @@ function Shell() {
       />
       {page}
       <footer className="border-t border-slate-900 py-6 text-center text-[11px] text-slate-600">
-        Prediction Market Platform · off-chain CLOB · CTF settlement · UMA-style optimistic
+        Dolymarket · in-memory CLOB · CTF settlement · UMA-style optimistic
         oracle — simulation environment, not financial advice.
       </footer>
     </div>
@@ -91,8 +117,15 @@ function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) 
 
 const NAV_ITEMS = [
   { key: 'markets', label: 'Markets', icon: LineChart },
+  { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'resolution', label: 'Resolution', icon: Gavel },
+]
+
+const ANON_NAV_ITEMS = [
+  { key: 'home', label: 'Home', icon: Home },
+  { key: 'markets', label: 'Markets', icon: LineChart },
+  { key: 'desks', label: 'Desks', icon: TrendingUp },
 ]
 
 function Nav({
@@ -108,24 +141,26 @@ function Nav({
   onAuth: (mode: 'login' | 'register') => void
   onLogout: () => void
 }) {
+  const items = user ? NAV_ITEMS : ANON_NAV_ITEMS
+  const activeSection = user && section === 'home' ? 'markets' : section
   return (
     <nav className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6">
         <button
-          onClick={() => onNavigate('markets')}
+          onClick={() => onNavigate(user ? 'markets' : 'home')}
           className="flex items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
         >
           <BarChart3 className="h-5 w-5 text-emerald-400" />
-          Polymarket<span className="text-slate-500">/pred</span>
+          DolyMarket
         </button>
 
         <div className="flex items-center gap-1">
-          {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+          {items.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => onNavigate(key)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                section === key
+                activeSection === key
                   ? 'bg-slate-800 text-white'
                   : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
               }`}

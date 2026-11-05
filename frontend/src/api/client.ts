@@ -1,5 +1,5 @@
 /**
- * Type-Safe API Client & Domain Models for the Prediction Market Platform.
+ * Type-Safe API Client & Domain Models for Dolymarket.
  * Backend contract: FastAPI app (app/main.py) — auth, collateral, markets,
  * CLOB orders, positions, CTF settlement, oracle resolution.
  */
@@ -71,6 +71,8 @@ export interface OrderBookSnapshot {
   bids: [string, number][];
   asks: [string, number][];
   timestamp: number;
+  sequence?: number;
+  stream_sequence?: number;
 }
 
 export interface Ticker {
@@ -101,6 +103,7 @@ export interface Order {
   status: string;
   time_in_force: string;
   created_at: string;
+  pending?: boolean;
 }
 
 export interface OrderFill {
@@ -109,6 +112,7 @@ export interface OrderFill {
   shares: number;
   maker_fee: number;
   taker_fee: number;
+  sequence_id?: number;
   timestamp: string;
 }
 
@@ -153,6 +157,39 @@ export interface AuthResponse {
   user: { id: string; email: string };
 }
 
+export interface OAuthProviderInfo {
+  name: string;
+  label: string;
+  configured: boolean;
+  scopes: string;
+}
+
+export interface OAuthStartResponse {
+  provider: string;
+  label: string;
+  configured: boolean;
+  auth_url: string;
+  state: string;
+  redirect_uri: string;
+}
+
+export interface PasskeyOptions {
+  publicKey: any;
+  challenge: string;
+  rp: { id: string; name: string };
+}
+
+export interface PasskeyCredentialInfo {
+  credential_id: string;
+  label: string | null;
+  aaguid: string | null;
+  device_type: string | null;
+  backed_up: boolean;
+  sign_count: number;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 export interface TradeTicketInput {
   market_id: string;
   token_id: string;
@@ -168,11 +205,12 @@ export interface TradeTicketInput {
 // Token storage
 // ---------------------------------------------------------------------------
 
-const TOKEN_KEY = 'pm_auth_token';
+const TOKEN_KEY = 'dolymarket_auth_token';
+const LEGACY_TOKEN_KEY = 'pm_auth_token';
 
 export function getStoredToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -189,6 +227,7 @@ export function setStoredToken(token: string): void {
 export function clearStoredToken(): void {
   try {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch {
     /* ignore */
   }
@@ -284,6 +323,11 @@ export class ApiClient {
     clearStoredToken();
   }
 
+  /** Profile of the authenticated account. */
+  getMe(): Promise<{ id: string; email: string; created_at: string }> {
+    return this.request('/api/v1/auth/me');
+  }
+
   // ---- Collateral ---------------------------------------------------------
 
   getBalance(): Promise<Balance> {
@@ -357,9 +401,25 @@ export class ApiClient {
 
   // ---- Orders --------------------------------------------------------------
 
-  submitOrder(input: TradeTicketInput): Promise<{ order: Order; fills: OrderFill[] }> {
+  /**
+   * Submit an order.
+   *
+   * `idempotencyKey` lets a caller reuse the same key when retrying the same
+   * logical request: the server replays the first response instead of
+   * matching the order twice. A fresh key is generated when omitted.
+   */
+  submitOrder(
+    input: TradeTicketInput,
+    idempotencyKey?: string
+  ): Promise<{ order: Order; fills: OrderFill[] }> {
+    const key =
+      idempotencyKey ??
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
     return this.request('/api/v4/prediction/orders', {
       method: 'POST',
+      headers: { 'X-Idempotency-Key': key },
       body: JSON.stringify(input),
     });
   }
@@ -379,6 +439,131 @@ export class ApiClient {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v && qs.set(k, v));
     return this.request(`/api/v4/prediction/orders?${qs.toString()}`, { method: 'DELETE' });
+  }
+
+  // ---- Federated auth ------------------------------------------------------
+
+  /** Providers this deployment supports (and whether they are configured). */
+  listAuthProviders(): Promise<{ providers: OAuthProviderInfo[] }> {
+    return this.request('/api/v1/auth/oauth/providers', {}, false);
+  }
+
+  /** Begin an OAuth handshake and return the provider authorize URL. */
+  oauthStart(provider: string, redirect = true): Promise<OAuthStartResponse> {
+    const query = redirect ? '?redirect=true' : '';
+    return this.request(
+      `/api/v1/auth/oauth/${encodeURIComponent(provider)}/start${query}`,
+      {},
+      false
+    );
+  }
+
+  /** Redeem the one-time code for a JWT and persist it. */
+  async oauthExchange(code: string): Promise<AuthResponse> {
+    const data = await this.request<AuthResponse>(
+      '/api/v1/auth/oauth/exchange',
+      { method: 'POST', body: JSON.stringify({ code }) },
+      false
+    );
+    setStoredToken(data.access_token);
+    return data;
+  }
+
+  // ---- Passkeys ------------------------------------------------------------
+
+  passkeyRegisterOptions(): Promise<PasskeyOptions> {
+    return this.request('/api/v1/auth/passkey/register/options', { method: 'POST' });
+  }
+
+  passkeyRegisterVerify(
+    credential: unknown,
+    label?: string
+  ): Promise<{ status: string; credential_id: string; user: { id: string; email: string } }> {
+    return this.request('/api/v1/auth/passkey/register/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential, label }),
+    });
+  }
+
+  passkeyLoginOptions(): Promise<PasskeyOptions> {
+    return this.request('/api/v1/auth/passkey/login/options', { method: 'POST' }, false);
+  }
+
+  /** Verify a passkey assertion, persist the JWT and return the session. */
+  async passkeyLoginVerify(credential: unknown): Promise<AuthResponse> {
+    const data = await this.request<AuthResponse>(
+      '/api/v1/auth/passkey/login/verify',
+      { method: 'POST', body: JSON.stringify({ credential }) },
+      false
+    );
+    setStoredToken(data.access_token);
+    return data;
+  }
+
+  listPasskeys(): Promise<{ passkeys: PasskeyCredentialInfo[] }> {
+    return this.request('/api/v1/auth/passkey/credentials');
+  }
+
+  deletePasskey(credentialId: string): Promise<{ status: string; credential_id: string }> {
+    return this.request(
+      `/api/v1/auth/passkey/credentials/${encodeURIComponent(credentialId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ---- Pro Desks -----------------------------------------------------------
+  listDesks(params: { sort?: string; limit?: number } = {}): Promise<{ desks: any[] }> {
+    const q = new URLSearchParams();
+    if (params.sort) q.set('sort', params.sort);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request(`/api/v1/desks${qs ? '?' + qs : ''}`, {}, false);
+  }
+  getDesk(id: string): Promise<{ desk: any }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}`, {}, false);
+  }
+  getDeskTrackRecord(id: string): Promise<{ track_record: any; curve: any[] }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/track-record`, {}, false);
+  }
+  createDesk(body: { name: string; slug: string; description?: string }): Promise<{ status: string; desk: any }> {
+    return this.request('/api/v1/desks', { method: 'POST', body: JSON.stringify(body) });
+  }
+  getMyDesk(): Promise<{ desk: any }> {
+    return this.request('/api/v1/desks/mine');
+  }
+  updateDesk(id: string, body: { name?: string; description?: string }): Promise<{ desk: any }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
+  }
+  submitDesk(id: string): Promise<{ status: string; desk: any }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/submit`, { method: 'POST' });
+  }
+  suspendDesk(id: string): Promise<{ status: string; desk: any }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/suspend`, { method: 'POST' });
+  }
+  archiveDesk(id: string): Promise<{ status: string; desk: any }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+  }
+  listDeskFollowers(id: string): Promise<{ followers: any[] }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/followers`);
+  }
+  listDeskCopyJobs(id: string): Promise<{ counts: any; jobs: any[] }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/copy-jobs`);
+  }
+  followDesk(id: string, body: any): Promise<{ status: string }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/follow`, { method: 'POST', body: JSON.stringify(body) });
+  }
+  updateFollow(id: string, body: any): Promise<{ status: string }> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/follow`, { method: 'PUT', body: JSON.stringify(body) });
+  }
+  unfollowDesk(id: string): Promise<void> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/follow`, { method: 'DELETE' });
+  }
+  listCopyJobs(params: { status?: string; limit?: number } = {}): Promise<{ jobs: any[] }> {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request(`/api/v1/copy-jobs${qs ? '?' + qs : ''}`);
   }
 
   // ---- Positions -----------------------------------------------------------

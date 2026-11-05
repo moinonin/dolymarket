@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_async_session
-from app.models.domain import Event, Market, OutcomeToken, User
+from app.models.domain import Desk, Event, Market, OutcomeToken, User
 
 router = APIRouter(prefix="/api/v4/prediction/admin", tags=["admin"])
 
@@ -61,6 +61,7 @@ async def close_market(
     ).scalar_one_or_none()
     if event is not None:
         event.status = "CLOSED"
+    await session.flush()
     return {"market_id": market.id, "status": market.status}
 
 
@@ -79,10 +80,7 @@ async def create_event(
     def _parse(dt_str: str | None):
         if not dt_str:
             return None
-        try:
-            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        except ValueError:
-            return None
+        return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
 
     event = Event(
         slug=body.slug,
@@ -90,8 +88,7 @@ async def create_event(
         description=body.description,
         category=body.category,
         tags=body.tags,
-        status="ACTIVE",
-        start_date=_parse(body.start_date) or datetime.now(UTC),
+        start_date=_parse(body.start_date),
         end_date=_parse(body.end_date),
     )
     session.add(event)
@@ -119,13 +116,13 @@ async def create_market(
 
     market = Market(
         event_id=event.id,
-        condition_id=_condition_id(f"{body.event_slug}:{body.question}:{uuid.uuid4()}"),
         question=body.question,
         outcomes=body.outcomes,
         tick_size=max(0.0001, body.tick_size),
         min_order_size=max(0.0, body.min_order_size),
         status="ACTIVE",
         neg_risk=body.neg_risk,
+        condition_id=_condition_id(f"{body.event_slug}:{body.question}:{uuid.uuid4()}"),
     )
     session.add(market)
     await session.flush()
@@ -154,3 +151,69 @@ async def create_market(
             for t in tokens
         ],
     }
+
+
+async def _require_admin(user: User) -> User:
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="ADMIN_REQUIRED")
+    return user
+
+
+class RejectDeskRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/desks/{desk_id}/approve")
+async def approve_desk(
+    desk_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    await _require_admin(user)
+    desk = (await session.execute(select(Desk).where(Desk.id == desk_id))).scalar_one_or_none()
+    if desk is None:
+        raise HTTPException(status_code=404, detail="Desk not found")
+    if desk.status != "PENDING_REVIEW":
+        raise HTTPException(status_code=409, detail="DESK_INVALID_TRANSITION")
+    desk.status = "ACTIVE"
+    desk.activated_at = datetime.now(UTC)
+    desk.review_note = None
+    await session.flush()
+    return {"status": "ACTIVE", "desk_id": desk.id}
+
+
+@router.post("/desks/{desk_id}/reject")
+async def reject_desk(
+    desk_id: str,
+    body: RejectDeskRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    await _require_admin(user)
+    desk = (await session.execute(select(Desk).where(Desk.id == desk_id))).scalar_one_or_none()
+    if desk is None:
+        raise HTTPException(status_code=404, detail="Desk not found")
+    if desk.status != "PENDING_REVIEW":
+        raise HTTPException(status_code=409, detail="DESK_INVALID_TRANSITION")
+    desk.status = "REJECTED"
+    desk.review_note = body.reason
+    await session.flush()
+    return {"status": "REJECTED", "desk_id": desk.id}
+
+
+@router.post("/desks/{desk_id}/suspend")
+async def admin_suspend_desk(
+    desk_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    await _require_admin(user)
+    desk = (await session.execute(select(Desk).where(Desk.id == desk_id))).scalar_one_or_none()
+    if desk is None:
+        raise HTTPException(status_code=404, detail="Desk not found")
+    if desk.status == "ARCHIVED":
+        raise HTTPException(status_code=409, detail="DESK_INVALID_TRANSITION")
+    desk.status = "SUSPENDED"
+    desk.suspended_at = datetime.now(UTC)
+    await session.flush()
+    return {"status": "SUSPENDED", "desk_id": desk.id}

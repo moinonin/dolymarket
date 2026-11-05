@@ -1,18 +1,37 @@
 """Off-chain Central Limit Order Book (CLOB) matching engine.
 
-Implements price-time priority matching, tick integrity validation,
-price bounds [0.01, 0.99], time-in-force handling (GTC / IOC / FOK),
-post-only maker guarantees, self-trade prevention, collateral locking,
-and the parabolic dynamic fee model::
+Matching runs against an in-memory dual-sided book (bids descending, asks
+ascending, FIFO inside a price level). Fills are buffered in a write-behind
+queue and persisted in one batch per submission. Every fill and book mutation
+carries a deterministic ``sequence_id`` so streaming clients can detect gaps.
+
+Business invariants preserved from the original engine:
+
+* price-time priority matching
+* tick integrity and price bounds ``[0.01, 0.99]``
+* time-in-force handling (GTC / IOC / FOK)
+* post-only maker guarantees and self-trade prevention
+* collateral locking and the parabolic dynamic fee model::
 
     Fee = C * feeRate * p * (1 - p)
 """
+from __future__ import annotations
+
+import uuid
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sequencer import next_sequence_id
+from app.engine.book import (
+    BOOK_STATUSES,
+    InMemoryOrderBook,
+    OrderBookRegistry,
+    order_books as default_order_books,
+)
+from app.engine.fill_queue import FillWriteQueue
 from app.models.domain import (
     Event,
     Market,
@@ -59,63 +78,36 @@ def to_dec(value: Any) -> Decimal:
 
 
 class OrderBook:
-    """Read-model over persisted orders for a single outcome token."""
+    """Compatibility read-model backed by the live in-memory book."""
 
-    def __init__(self, session: AsyncSession, token_id: str):
+    def __init__(
+        self,
+        session: AsyncSession,
+        token_id: str,
+        registry: OrderBookRegistry | None = None,
+    ):
         self.session = session
         self.token_id = token_id
+        self._registry = registry or default_order_books
 
-    BOOK_STATUSES = ("OPEN", "PARTIALLY_FILLED")
+    async def _book(self) -> InMemoryOrderBook:
+        return await self._registry.get(self.session, self.token_id)
 
-    async def resting_orders(self, side: str) -> list[Order]:
+    async def resting_orders(self, side: str) -> list:
         """Resting orders on ``side`` in price-time priority."""
-        stmt = (
-            select(Order)
-            .where(
-                Order.token_id == self.token_id,
-                Order.side == side,
-                Order.status.in_(self.BOOK_STATUSES),
-            )
-            .order_by(
-                Order.price.desc() if side == "BUY" else Order.price.asc(),
-                Order.created_at.asc(),
-            )
-        )
-        rows = (await self.session.execute(stmt)).scalars().all()
-        return list(rows)
+        return (await self._book()).resting_orders(side)
 
     async def snapshot(self, depth: int = 50) -> dict:
-        bids, asks = await self.levels(depth)
-        return {
-            "token_id": self.token_id,
-            "bids": bids,
-            "asks": asks,
-            "timestamp": int(_now_ns()),
-        }
+        return (await self._book()).snapshot(depth)
 
     async def levels(self, depth: int = 50) -> tuple[list, list]:
-        async def aggregate(side: str) -> list:
-            orders = await self.resting_orders(side)
-            acc: dict[str, Decimal] = {}
-            for o in orders:
-                remaining = to_dec(o.amount) - to_dec(o.filled_amount)
-                if remaining > 0:
-                    key = str(Decimal(str(o.price)))
-                    acc[key] = acc.get(key, Decimal(0)) + remaining
-            lvl = [[str(Decimal(k).normalize()), float(v)] for k, v in acc.items()]
-            return lvl[:depth]
-
-        bids = await aggregate("BUY")
-        asks = await aggregate("SELL")
-        return bids, asks
+        return (await self._book()).levels(depth)
 
     async def best_bid(self) -> Decimal | None:
-        buys = await self.resting_orders("BUY")
-        return to_dec(buys[0].price) if buys else None
+        return (await self._book()).best_bid()
 
     async def best_ask(self) -> Decimal | None:
-        sells = await self.resting_orders("SELL")
-        return to_dec(sells[0].price) if sells else None
+        return (await self._book()).best_ask()
 
 
 def _now_ns() -> int:
@@ -125,12 +117,21 @@ def _now_ns() -> int:
 
 
 class MatchingEngine:
-    """Matches incoming aggressive orders against resting DB orders."""
+    """Matches aggressive orders against the in-memory book."""
 
-    def __init__(self, broadcaster=None):
+    def __init__(
+        self,
+        broadcaster=None,
+        registry: OrderBookRegistry | None = None,
+        fill_queue: FillWriteQueue | None = None,
+    ):
         # broadcaster: async callable(events: list[dict]) for WebSocket streaming
         self.broadcaster = broadcaster
         self.last_events: list[dict] = []
+        self.order_books = registry or default_order_books
+        # Per-engine queue: a request can only flush fills it wrote itself,
+        # which keeps concurrent submissions transactionally isolated.
+        self.fill_queue = fill_queue if fill_queue is not None else FillWriteQueue()
 
     async def _emit(self, events: list[dict]) -> None:
         if self.broadcaster is None:
@@ -152,8 +153,10 @@ class MatchingEngine:
         order_type: str = "LIMIT",
         time_in_force: str = "GTC",
         post_only: bool = False,
+        desk_id: str | None = None,
+        copy_source_fill_id: str | None = None,
     ) -> Order:
-        book = OrderBook(session, token.token_id)
+        book = await self.order_books.get(session, token.token_id)
         tick = to_dec(market.tick_size)
 
         if market.status != "ACTIVE":
@@ -170,7 +173,7 @@ class MatchingEngine:
             )
 
         if order_type == "MARKET":
-            ref = await book.best_ask() if side == "BUY" else await book.best_bid()
+            ref = book.best_ask() if side == "BUY" else book.best_bid()
             if ref is None:
                 raise OrderRejected(
                     "No resting liquidity for market order", http_status=400
@@ -196,13 +199,17 @@ class MatchingEngine:
             status="OPEN",
             time_in_force=time_in_force,
             post_only=post_only,
+            desk_id=desk_id,
+            copy_source_fill_id=copy_source_fill_id,
         )
         session.add(order)
         await session.flush()
 
         events: list[dict] = []
+        book_changed = False
+        order_sequence = next_sequence_id()
 
-        post_only_cross = await self._would_cross(book, side, price)
+        post_only_cross = self._would_cross(book, side, price)
         if post_only and post_only_cross:
             order.status = "REJECTED"
             raise OrderRejected(
@@ -211,11 +218,11 @@ class MatchingEngine:
 
         # Self-trade prevention: reject if the top-of-book order is ours.
         opposite = "SELL" if side == "BUY" else "BUY"
-        resting = await book.resting_orders(opposite)
+        resting = book.resting_orders(opposite)
         relevant = [
             o
             for o in resting
-            if (to_dec(o.price) <= price if side == "BUY" else to_dec(o.price) >= price)
+            if (o.price <= price if side == "BUY" else o.price >= price)
         ]
         if relevant and relevant[0].user_id == user_id:
             order.status = "REJECTED"
@@ -227,7 +234,9 @@ class MatchingEngine:
             cost = price * amount
             await collateral_service.lock_for_buy(session, user_id, cost)
         else:
-            position = await self._get_position(session, user_id, token.token_id)
+            position = await self._get_position(
+                session, user_id, token.token_id, for_update=True
+            )
             if position is None or to_dec(position.shares) - to_dec(
                 position.locked_shares
             ) < amount:
@@ -242,69 +251,87 @@ class MatchingEngine:
                     "token_id": token.token_id,
                     "shares": float(position.shares),
                     "locked_shares": float(position.locked_shares),
+                    "sequence_id": order_sequence,
                 }
             )
 
         if time_in_force == "FOK":
-            liquidity = sum(
-                min(to_dec(o.amount) - to_dec(o.filled_amount), amount)
-                for o in relevant
-            )
+            liquidity = sum((min(o.remaining, amount) for o in relevant), Decimal(0))
             if liquidity < amount:
                 order.status = "REJECTED"
                 await self._release_all(session, order, collateral_service)
                 self.last_events = events
                 return order
 
-        # Match against resting liquidity (price-time priority).
+        # Match against in-memory resting liquidity (price-time priority).
         remaining = amount
-        for maker in relevant[:]:
-            if remaining <= 0:
-                break
-            fill_price = to_dec(maker.price)
-            maker_remaining = to_dec(maker.amount) - to_dec(maker.filled_amount)
-            qty = min(maker_remaining, remaining)
-            if qty <= 0:
-                continue
-            fill = await self._execute_fill(
-                session,
-                market,
-                token,
-                maker,
-                order,
-                fill_price,
-                qty,
-                collateral_service,
-            )
-            events.append(
-                {
-                    "channel": "pred.trades",
-                    "market_id": market.id,
-                    "token_id": token.token_id,
-                    "price": float(fill_price),
-                    "shares": float(qty),
-                    "side": side,
-                    "timestamp": _now_ns(),
-                }
-            )
-            events.extend(fill.pop("position_events", []))
-            remaining -= qty
-
-        order.filled_amount = amount - remaining
-
-        if remaining > 0:
-            if time_in_force == "GTC" and order_type == "LIMIT":
-                order.status = (
-                    "PARTIALLY_FILLED" if order.filled_amount > 0 else "OPEN"
+        try:
+            for maker_record in relevant:
+                if remaining <= 0:
+                    break
+                maker = await session.get(Order, maker_record.id)
+                if maker is None or maker.status not in BOOK_STATUSES:
+                    book.remove_order(maker_record.id)
+                    book_changed = True
+                    continue
+                fill_price = to_dec(maker.price)
+                maker_remaining = to_dec(maker.amount) - to_dec(maker.filled_amount)
+                qty = min(maker_remaining, remaining)
+                if qty <= 0:
+                    book.remove_order(maker_record.id)
+                    book_changed = True
+                    continue
+                fill = await self._execute_fill(
+                    session,
+                    market,
+                    token,
+                    maker,
+                    order,
+                    fill_price,
+                    qty,
+                    collateral_service,
+                    book,
                 )
-            else:  # IOC remainder (FOK remainder handled above)
-                order.status = "CANCELLED"
-                await self._release_all(session, order, collateral_service)
-        else:
-            order.status = "FILLED"
-            await self._emit(events)
-            self.last_events = events
-            return order
+                book_changed = True
+                events.append(
+                    {
+                        "channel": "pred.trades",
+                        "market_id": market.id,
+                        "token_id": token.token_id,
+                        "price": float(fill_price),
+                        "shares": float(qty),
+                        "side": side,
+                        "sequence_id": fill["sequence_id"],
+                        "sequence": fill["sequence_id"],
+                        "timestamp": _now_ns(),
+                    }
+                )
+                events.extend(fill.pop("position_events", []))
+                remaining -= qty
+
+            order.filled_amount = amount - remaining
+
+            if remaining > 0:
+                if time_in_force == "GTC" and order_type == "LIMIT":
+                    order.status = (
+                        "PARTIALLY_FILLED" if order.filled_amount > 0 else "OPEN"
+                    )
+                    book.add_order(order)
+                    book_changed = True
+                else:  # IOC remainder (FOK remainder handled above)
+                    order.status = "CANCELLED"
+                    await self._release_all(session, order, collateral_service)
+            else:
+                order.status = "FILLED"
+
+            await self.fill_queue.flush(session)
+        except Exception:
+            # A failed submission must not leak buffered fills into the next
+            # request, and the in-memory book must not keep liquidity that the
+            # rolled-back transaction never committed.
+            self.fill_queue.discard()
+            self.order_books.invalidate(token.token_id)
+            raise
 
         events.append(
             {
@@ -314,20 +341,28 @@ class MatchingEngine:
                 "status": order.status,
                 "filled_amount": float(order.filled_amount),
                 "remaining_amount": float(remaining),
+                "sequence_id": order_sequence,
+                "sequence": order_sequence,
             }
         )
+        if book_changed:
+            events.append(self._depth_event(book))
         await self._emit(events)
         self.last_events = events
         return order
 
-    async def _would_cross(
-        self, book: OrderBook, side: str, price: Decimal
+    def _would_cross(
+        self, book: InMemoryOrderBook, side: str, price: Decimal
     ) -> bool:
         if side == "BUY":
-            best_ask = await book.best_ask()
+            best_ask = book.best_ask()
             return best_ask is not None and price >= best_ask
-        best_bid = await book.best_bid()
+        best_bid = book.best_bid()
         return best_bid is not None and price <= best_bid
+
+    @staticmethod
+    def _depth_event(book: InMemoryOrderBook, depth: int = 50) -> dict:
+        return {"channel": "pred.depth", **book.snapshot(depth)}
 
     async def _execute_fill(
         self,
@@ -339,6 +374,7 @@ class MatchingEngine:
         fill_price: Decimal,
         qty: Decimal,
         collateral_service,
+        book: InMemoryOrderBook,
     ) -> dict:
         category = None
         event = (
@@ -349,8 +385,10 @@ class MatchingEngine:
         fee_rate = fee_rate_for_category(category)
         maker_fee = compute_fee(qty, fee_rate, fill_price)
         taker_fee = compute_fee(qty, fee_rate, fill_price)
+        sequence_id = next_sequence_id()
 
         fill = TradeFill(
+            id=str(uuid.uuid4()),
             market_id=market.id,
             token_id=token.token_id,
             maker_order_id=maker.id,
@@ -361,21 +399,25 @@ class MatchingEngine:
             shares=qty,
             maker_fee=maker_fee,
             taker_fee=taker_fee,
+            sequence_id=sequence_id,
         )
-        session.add(fill)
+        # Write-behind: the queue batches all fills for this submission into a
+        # single INSERT when ``submit_order`` flushes.
+        self.fill_queue.enqueue(fill)
 
         maker.filled_amount = to_dec(maker.filled_amount) + qty
         maker_remaining = to_dec(maker.amount) - to_dec(maker.filled_amount)
         maker.status = "FILLED" if maker_remaining <= 0 else "PARTIALLY_FILLED"
+        book.update_order(maker)
 
         taker.filled_amount = to_dec(taker.filled_amount) + qty
 
         # --- settlement of funds -------------------------------------------
         taker_account = await collateral_service.resolve_account(
-            session, taker.user_id
+            session, taker.user_id, for_update=True
         )
         maker_account = await collateral_service.resolve_account(
-            session, maker.user_id
+            session, maker.user_id, for_update=True
         )
 
         if taker.side == "BUY":
@@ -404,7 +446,9 @@ class MatchingEngine:
             (maker.user_id, "maker", maker),
             (taker.user_id, "taker", taker),
         ):
-            position = await self._get_position(session, user_id, token.token_id)
+            position = await self._get_position(
+                session, user_id, token.token_id, for_update=True
+            )
             if position is None:
                 position = Position(
                     user_id=user_id,
@@ -444,6 +488,7 @@ class MatchingEngine:
                     "shares": float(position.shares),
                     "avg_entry_price": float(position.avg_entry_price),
                     "role": role,
+                    "sequence_id": sequence_id,
                 }
             )
 
@@ -458,18 +503,26 @@ class MatchingEngine:
                 "shares": float(qty),
                 "fee_paid": float(taker_fee),
                 "role": "taker",
+                "sequence_id": sequence_id,
+                "sequence": sequence_id,
             }
         )
-        return {"position_events": position_events}
+        return {"position_events": position_events, "sequence_id": sequence_id}
 
-    async def _release_all(self, session: AsyncSession, order: Order, collateral_service) -> None:
+    async def _release_all(
+        self, session: AsyncSession, order: Order, collateral_service
+    ) -> None:
         remaining = to_dec(order.amount) - to_dec(order.filled_amount)
         price = to_dec(order.price)
         if order.side == "BUY":
-            account = await collateral_service.resolve_account(session, order.user_id)
+            account = await collateral_service.resolve_account(
+                session, order.user_id, for_update=True
+            )
             await collateral_service.release_lock(session, account, price * remaining)
         else:
-            position = await self._get_position(session, order.user_id, order.token_id)
+            position = await self._get_position(
+                session, order.user_id, order.token_id, for_update=True
+            )
             if position is not None:
                 position.locked_shares = max(
                     Decimal(0), to_dec(position.locked_shares) - remaining
@@ -481,22 +534,30 @@ class MatchingEngine:
         remaining = to_dec(order.amount) - to_dec(order.filled_amount)
         order.status = "CANCELLED"
         await self._release_all(session, order, collateral_service)
+        book = await self.order_books.get(session, order.token_id)
+        book.remove_order(order.id)
+        sequence_id = book.next_sequence()
         return {
             "order_id": order.id,
             "status": "CANCELLED",
             "unfilled_amount": float(remaining),
+            "sequence_id": sequence_id,
+            "sequence": sequence_id,
         }
 
     async def _get_position(
-        self, session: AsyncSession, user_id: str, token_id: str
+        self,
+        session: AsyncSession,
+        user_id: str,
+        token_id: str,
+        for_update: bool = False,
     ) -> Position | None:
-        return (
-            await session.execute(
-                select(Position).where(
-                    Position.user_id == user_id, Position.token_id == token_id
-                )
-            )
-        ).scalar_one_or_none()
+        stmt = select(Position).where(
+            Position.user_id == user_id, Position.token_id == token_id
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await session.execute(stmt)).scalar_one_or_none()
 
 
 class OrderRejected(Exception):

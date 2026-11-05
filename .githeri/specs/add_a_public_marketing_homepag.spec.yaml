@@ -1,0 +1,221 @@
+task_id: dolymarket-federated-auth-and-homepage
+summary: "Add OAuth, WebAuthn passkeys, and public marketing homepage"
+business_rules:
+  - name: "OAuth Token Exchange"
+    formula: "OAuth callbacks return a secure exchange code, which can be redeemed once for a JWT access token."
+  - name: "Passkey Verification"
+    formula: "WebAuthn ceremonies require valid challenge validation and increment sign counters."
+  - name: "Federated Account Linking"
+    formula: "A provider subject links to one Dolymarket account; a verified e-mail links to the existing account instead of creating a duplicate."
+  - name: "Anonymous Homepage"
+    formula: "Unauthenticated visitors see the marketing homepage; authenticated traders see the markets/portfolio/resolution terminal."
+test_fixtures: []
+environment:
+  packages:
+    - fastapi
+    - sqlalchemy
+    - pydantic
+    - pytest
+    - httpx
+    - webauthn
+    - pyjwt
+  env_vars:
+    JWT_SECRET: "test-secret-1234567890abcdef"
+    GOOGLE_CLIENT_ID: "google-test-id"
+    GOOGLE_CLIENT_SECRET: "google-test-secret"
+    WEBAUTHN_RP_ID: "localhost"
+    WEBAUTHN_ORIGIN: "http://localhost:8000"
+  services: []
+global_verification:
+  - "pytest tests/"
+local_goals:
+  - id: L1
+    description: "CREATE: SQLAlchemy models for linked OAuth accounts, passkey credentials, ceremony challenges and one-time exchange codes"
+    type: create
+    blueprint: |
+      from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, LargeBinary, JSON, Text
+      from sqlalchemy.orm import relationship, declarative_base
+
+      Base = declarative_base()
+
+      class User(Base):
+          __tablename__ = "users"
+          id = Column(String(36), primary_key=True, index=True)
+          email = Column(String(255), unique=True, index=True, nullable=False)
+          hashed_password = Column(String(255), nullable=False)
+          oauth_accounts = relationship("OAuthAccount", back_populates="user")
+          passkeys = relationship("PasskeyCredential", back_populates="user")
+
+      class OAuthAccount(Base):
+          __tablename__ = "oauth_accounts"
+          id = Column(String(36), primary_key=True, default=_uuid)
+          user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+          provider = Column(String(32), nullable=False, index=True)
+          provider_user_id = Column(String(255), nullable=False)
+          email = Column(String(255), nullable=True)
+          display_name = Column(String(255), nullable=True)
+          __table_args__ = (UniqueConstraint("provider", "provider_user_id"),)
+
+      class PasskeyCredential(Base):
+          __tablename__ = "passkey_credentials"
+          id = Column(String(36), primary_key=True, default=_uuid)
+          user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+          credential_id = Column(String(255), unique=True, nullable=False, index=True)
+          public_key = Column(LargeBinary, nullable=False)
+          sign_count = Column(Integer, default=0, nullable=False)
+          aaguid = Column(String(64), nullable=True)
+          transports = Column(JSON, nullable=True)
+          backed_up = Column(Boolean, default=False, nullable=False)
+          created_at = Column(DateTime(timezone=True), default=_now_utc)
+
+      class PasskeyChallenge(Base):
+          __tablename__ = "passkey_challenges"
+          id = Column(String(36), primary_key=True, default=_uuid)
+          user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+          challenge = Column(String(255), unique=True, nullable=False, index=True)
+          kind = Column(String(16), nullable=False)
+          expires_at = Column(DateTime(timezone=True), nullable=False)
+
+      class AuthExchangeCode(Base):
+          __tablename__ = "auth_exchange_codes"
+          id = Column(String(36), primary_key=True, default=_uuid)
+          code = Column(String(128), unique=True, nullable=False, index=True)
+          user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+          provider = Column(String(32), nullable=True)
+          expires_at = Column(DateTime(timezone=True), nullable=False)
+          used_at = Column(DateTime(timezone=True), nullable=True)
+    acceptance_criteria:
+      - "OAuthAccount, PasskeyCredential, PasskeyChallenge and AuthExchangeCode models are defined with correct foreign keys"
+    verification:
+      type: content
+      path: "app/models/domain.py"
+      expect:
+        content_contains: "OAuthAccount"
+  - id: L2
+    description: "CREATE: OAuth 2.0 authorization endpoints, provider status and exchange route"
+    type: create
+    blueprint: |
+      from fastapi import APIRouter, HTTPException, Depends, Query
+      from pydantic import BaseModel
+
+      # Implemented as APIRouter(prefix="/api/v1/auth/oauth", tags=["auth"]).
+      router = APIRouter(tags=["auth"])
+
+      class ExchangeRequest(BaseModel):
+          code: str
+
+      @router.get("/api/v1/auth/oauth/providers")
+      async def list_providers():
+          return {"providers": [{"name": "google", "configured": True}]}
+
+      @router.get("/api/v1/auth/oauth/{provider}/start")
+      async def oauth_start(provider: str, redirect: bool = Query(default=False)):
+          return {"auth_url": f"https://auth.{provider}.com/oauth/authorize?state=signed-state"}
+
+      @router.get("/api/v1/auth/oauth/{provider}/callback")
+      async def oauth_callback(provider: str, code: str, state: str):
+          return {"exchange_code": "one-time-exchange-code"}
+
+      @router.post("/api/v1/auth/oauth/exchange")
+      async def oauth_exchange(payload: ExchangeRequest):
+          token = create_access_token(user.id, user.email)
+          return {"access_token": token, "token_type": "bearer"}
+    acceptance_criteria:
+      - "OAuth start, callback, provider status and exchange endpoints return correct payloads"
+      - "The exchange code can be redeemed exactly once"
+    verification:
+      type: content
+      path: "app/api/v1/oauth.py"
+      expect:
+        content_contains: "oauth_exchange"
+  - id: L3
+    description: "CREATE: WebAuthn passkey registration and login endpoints"
+    type: create
+    blueprint: |
+      from fastapi import APIRouter, HTTPException, Depends
+      from pydantic import BaseModel
+
+      # Implemented as APIRouter(prefix="/api/v1/auth/passkey", tags=["auth"]).
+      router = APIRouter(tags=["auth"])
+
+      class PasskeyVerifyRequest(BaseModel):
+          credential: dict | None = None
+          credential_id: str | None = None
+          response: dict | None = None
+
+      @router.post("/api/v1/auth/passkey/register/options")
+      async def passkey_register_options():
+          return {"publicKey": {...}, "challenge": "...", "rp": {"name": "Dolymarket"}}
+
+      @router.post("/api/v1/auth/passkey/register/verify")
+      async def passkey_register_verify(payload: PasskeyVerifyRequest):
+          return {"status": "registered"}
+
+      @router.post("/api/v1/auth/passkey/login/options")
+      async def passkey_login_options():
+          return {"publicKey": {...}, "challenge": "..."}
+
+      @router.post("/api/v1/auth/passkey/login/verify")
+      async def passkey_login_verify(payload: PasskeyVerifyRequest):
+          token = create_access_token(user.id, user.email)
+          return {"access_token": token, "token_type": "bearer"}
+
+      @router.get("/api/v1/auth/passkey/credentials")
+      async def list_passkeys():
+          return {"passkeys": []}
+
+      @router.delete("/api/v1/auth/passkey/credentials/{credential_id}")
+      async def delete_passkey(credential_id: str):
+          return {"status": "deleted"}
+    acceptance_criteria:
+      - "Passkey register and login endpoints issue challenges and tokens successfully"
+      - "The stored sign counter is incremented on every successful assertion"
+    verification:
+      type: content
+      path: "app/api/v1/passkey.py"
+      expect:
+        content_contains: "passkey_login_verify"
+  - id: L4
+    description: "CREATE: Session profile endpoint used by the frontend shell"
+    type: create
+    blueprint: |
+      @router.get("/api/v1/auth/me")
+      async def me(user: User = Depends(get_current_user)):
+          return {"id": user.id, "email": user.email, "created_at": str(user.created_at)}
+    acceptance_criteria:
+      - "GET /api/v1/auth/me returns the authenticated profile and rejects anonymous calls"
+    verification:
+      type: content
+      path: "app/api/v1/auth.py"
+      expect:
+        content_contains: "async def me"
+  - id: L5
+    description: "VERIFY: OAuth exchange endpoint returns JWT access token"
+    acceptance_criteria:
+      - "POST /api/v1/auth/oauth/exchange exchanges a valid code for a JWT and rejects a replayed code"
+    verification:
+      type: http
+      method: POST
+      url: "http://localhost:8000/api/v1/auth/oauth/exchange"
+      body: '{"code": "<one-time exchange code returned by the callback>"}'
+      expect:
+        status: 200
+        body_contains: "access_token"
+  - id: L6
+    description: "VERIFY: Passkey login verify endpoint issues JWT access token"
+    acceptance_criteria:
+      - "POST /api/v1/auth/passkey/login/verify authenticates a valid passkey assertion and returns a JWT"
+      - "An invalid signature or a replayed challenge is rejected"
+    verification:
+      type: http
+      method: POST
+      url: "http://localhost:8000/api/v1/auth/passkey/login/verify"
+      body: '{"credential": {"id": "<credential id>", "rawId": "<credential id>", "type": "public-key", "response": {"clientDataJSON": "<base64url client data>", "authenticatorData": "<base64url authenticator data>", "signature": "<base64url signature>"}}}'
+      expect:
+        status: 200
+        body_contains: "access_token"
+context:
+  language: Python
+  framework: FastAPI
+  orm: SQLAlchemy
+  test_framework: pytest

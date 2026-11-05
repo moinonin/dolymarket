@@ -6,19 +6,83 @@ React frontend bundle from frontend/dist when present.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1 import auth as auth_router
 from app.api.v1 import collateral as collateral_router
+from app.api.v1 import desks as desks_router
+from app.api.v1 import oauth as oauth_router
+from app.api.v1 import passkey as passkey_router
 from app.api.v4 import admin as admin_router
 from app.api.v4 import orders as orders_router
 from app.api.v4 import positions as positions_router
 from app.api.v4 import public as public_router
 from app.api.v4 import resolution as resolution_router
 from app.api.v4 import ws as ws_router
+from app.core.ratelimit import (
+    AUTH_CAPACITY,
+    AUTH_RATE,
+    ORDER_CAPACITY,
+    ORDER_RATE,
+    PUBLIC_CAPACITY,
+    PUBLIC_RATE,
+    rate_limiter,
+)
 from app.db.session import AsyncSessionLocal, init_db
+
+ORDER_MUTATION_PREFIX = "/api/v4/prediction/orders"
+PUBLIC_READ_PREFIX = "/api/v4/prediction/"
+AUTH_ATTACK_PATHS = (
+    "/api/v1/auth/login",
+    "/api/v1/auth/oauth/exchange",
+    "/api/v1/auth/passkey/login/verify",
+)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Token-bucket limits for order mutations and public reads."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        policy = None
+        key = ""
+        if (
+            request.method in ("POST", "DELETE")
+            and path.startswith(ORDER_MUTATION_PREFIX)
+        ):
+            credential = (
+                request.headers.get("X-API-KEY")
+                or request.headers.get("Authorization")
+                or (request.client.host if request.client else "anonymous")
+            )
+            key = f"orders:{credential}"
+            policy = ("50 order requests/second", ORDER_RATE, ORDER_CAPACITY)
+        elif request.method == "GET" and path.startswith(PUBLIC_READ_PREFIX):
+            ip = request.client.host if request.client else "anonymous"
+            key = f"public:{ip}"
+            policy = ("100 public requests/minute", PUBLIC_RATE, PUBLIC_CAPACITY)
+        elif request.method == "POST" and path in AUTH_ATTACK_PATHS:
+            ip = request.client.host if request.client else "anonymous"
+            key = f"auth:{ip}"
+            policy = ("30 sign-in attempts/minute", AUTH_RATE, AUTH_CAPACITY)
+
+        if policy is not None:
+            label, rate, capacity = policy
+            allowed, retry_after = rate_limiter.allow(key, rate, capacity)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": f"Rate limit exceeded: {label}"},
+                    headers={
+                        "Retry-After": f"{max(1, int(retry_after))}",
+                        "X-RateLimit-Limit": label,
+                    },
+                )
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -32,8 +96,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Prediction Market Platform API",
-    version="4.0.0",
+    title="Dolymarket API",
+    description="Dolymarket prediction markets: in-memory CLOB, CTF settlement, real-time streaming.",
+    version="4.1.0",
     lifespan=lifespan,
 )
 
@@ -44,9 +109,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(auth_router.router)
 app.include_router(collateral_router.router)
+app.include_router(desks_router.router)
+app.include_router(oauth_router.router)
+app.include_router(passkey_router.router)
 app.include_router(public_router.router)
 app.include_router(orders_router.router)
 app.include_router(positions_router.router)
@@ -57,7 +126,7 @@ app.include_router(ws_router.router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "prediction-market-platform"}
+    return {"status": "ok", "service": "dolymarket"}
 
 
 # Static frontend bundle (built via `npm run build` in frontend/).

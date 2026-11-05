@@ -280,7 +280,7 @@ async def price_history(
     ).scalars().all()
     candles = []
     if fills:
-        candles = _build_candles(list(fills))
+        candles = _build_candles(list(fills), resolution)
     return {"token_id": token_id, "resolution": resolution, "candles": candles}
 
 
@@ -288,9 +288,9 @@ def _bucket_seconds(resolution: str) -> int:
     return {"1m": 60, "5m": 300, "1h": 3600, "1d": 86400}.get(resolution, 60)
 
 
-def _build_candles(fills) -> list[dict]:
+def _build_candles(fills, resolution: str = "1m") -> list[dict]:
     out: dict[int, dict] = {}
-    size = _bucket_seconds("1m")
+    size = _bucket_seconds(resolution)
     for f in fills:
         ts = f.timestamp
         if ts.tzinfo is None:

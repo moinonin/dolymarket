@@ -56,6 +56,16 @@ async def test_jwt_and_auth(api: AsyncClient):
     assert body["currency"] == "USDC"
 
 
+async def test_auth_me_returns_the_session_profile(api: AsyncClient):
+    headers = await auth_headers(api, "me@example.com")
+    resp = await api.get("/api/v1/auth/me", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "me@example.com"
+
+    anonymous = await api.get("/api/v1/auth/me")
+    assert anonymous.status_code == 401
+
+
 async def test_collateral_locking(api: AsyncClient):
     headers = await auth_headers(api, "collateral@example.com")
     await api.post("/api/v1/collateral/deposit", json={"amount": 1000.0}, headers=headers)

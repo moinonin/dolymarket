@@ -1,5 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api, type Market, type OutcomeToken } from '../api/client'
+import {
+  addPendingOrder,
+  confirmPendingOrder,
+  rejectPendingOrder,
+} from '../api/optimisticOrders'
 import { FeePreview } from './ui'
 import { useToast } from '../context/toast'
 import { useAuth } from '../auth/AuthProvider'
@@ -37,6 +42,7 @@ export default function TradeTicket({
   const [tif, setTif] = useState<(typeof TIFS)[number]>('GTC')
   const [postOnly, setPostOnly] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const submitRef = useRef<() => void>(() => {})
 
   // Auto-fill limit price with the visible opposite side.
   useEffect(() => {
@@ -81,6 +87,23 @@ export default function TradeTicket({
       push('Sign in first to place orders.', 'error')
       return
     }
+    if (submitting || warnings.length > 0) return
+    const optimistic =
+      orderType === 'LIMIT'
+        ? addPendingOrder({
+            id: null,
+            market_id: market.id,
+            token_id: token.token_id,
+            side,
+            type: orderType,
+            price: priceNum,
+            amount: amountNum,
+            filled_amount: 0,
+            status: 'PENDING',
+            time_in_force: tif,
+            created_at: new Date().toISOString(),
+          })
+        : null
     setSubmitting(true)
     api
       .submitOrder({
@@ -94,6 +117,7 @@ export default function TradeTicket({
         post_only: postOnly,
       })
       .then((res) => {
+        if (optimistic) confirmPendingOrder(optimistic, res.order)
         const fills = res.fills?.length || 0
         push(
           fills > 0
@@ -107,10 +131,44 @@ export default function TradeTicket({
         onPlaced()
       })
       .catch((err) => {
+        // Optimistic row is rolled back; the API client raises the toast.
+        if (optimistic) rejectPendingOrder(optimistic)
         push(err.message || 'Order rejected', 'error')
       })
       .finally(() => setSubmitting(false))
   }
+
+  submitRef.current = submit
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName?.toLowerCase()
+      const typing =
+        tag === 'input' || tag === 'textarea' || tag === 'select' ||
+        target?.isContentEditable === true
+
+      if (event.key === 'Escape') {
+        setPrice('')
+        setAmount('')
+        target?.blur?.()
+        return
+      }
+      if (event.key === 'Enter') {
+        if (tag === 'textarea' || tag === 'button' || tag === 'a') return
+        event.preventDefault()
+        submitRef.current()
+        return
+      }
+      if (typing) return
+      const key = event.key.toLowerCase()
+      if (key === 'b') setSide('BUY')
+      if (key === 's') setSide('SELL')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
@@ -275,6 +333,12 @@ export default function TradeTicket({
         {submitting ? 'Submitting…' : `${side === 'BUY' ? 'Buy' : 'Sell'} ${token.symbol}`}
       </button>
       {!user && <p className="mt-2 text-center text-[11px] text-slate-500">Sign in to place orders</p>}
+      <p className="mt-2 text-center text-[10px] text-slate-600">
+        Hotkeys: <span className="text-slate-400">B</span> buy ·{' '}
+        <span className="text-slate-400">S</span> sell ·{' '}
+        <span className="text-slate-400">Enter</span> submit ·{' '}
+        <span className="text-slate-400">Esc</span> clear
+      </p>
     </div>
   )
 }

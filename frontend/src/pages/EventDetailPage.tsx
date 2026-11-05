@@ -7,14 +7,21 @@ import {
   Users,
 } from 'lucide-react'
 import {
+  ColorType,
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from 'lightweight-charts'
+import {
   api,
-  getStoredToken,
   type Candle,
   type Market,
   type Order,
   type OrderBookSnapshot,
   type OutcomeToken,
 } from '../api/client'
+import { PredictionSocket, publicSocketUrl } from '../api/reconnectingSocket'
 import { useAuth } from '../auth/AuthProvider'
 import { StatusPill, feeRateForCategory } from '../components/ui'
 import { useToast } from '../context/toast'
@@ -171,14 +178,13 @@ function TradingPanel({
   const [book, setBook] = useState<OrderBookSnapshot | null>(null)
   const [trades, setTrades] = useState<React.ReactNode | null>(null)
   const [lastPrice, setLastPrice] = useState<number | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
+  const [socketState, setSocketState] = useState('connecting')
 
   useEffect(() => setToken(market.tokens[0]), [market.id])
 
   // Fetch + live-subscribe the order book for the selected token.
   useEffect(() => {
     let cancelled = false
-    let ws: WebSocket | null = null
 
     async function load() {
       try {
@@ -192,20 +198,16 @@ function TradingPanel({
     }
     load()
 
-    const token2 = getStoredToken()
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    ws = new WebSocket(`${proto}://${location.host}/api/v4/prediction/ws/public`)
-    wsRef.current = ws
-    ws.onopen = () => {
-      ws?.send(
-        JSON.stringify({ action: 'subscribe', channel: 'pred.depth', token_id: token.token_id })
-      )
-      ws?.send(JSON.stringify({ action: 'subscribe', channel: 'pred.trades' }))
-      ws?.send(JSON.stringify({ action: 'subscribe', channel: 'pred.bbo', token_id: token.token_id }))
-    }
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data)
+    const socket = new PredictionSocket({
+      url: publicSocketUrl(),
+      subscriptions: [
+        { action: 'subscribe', channel: 'pred.depth', token_id: token.token_id },
+        { action: 'subscribe', channel: 'pred.trades' },
+        { action: 'subscribe', channel: 'pred.bbo', token_id: token.token_id },
+      ],
+      getSnapshot: () => api.getOrderBook(token.token_id, 25),
+      onState: setSocketState,
+      onMessage: (msg) => {
         if (msg.channel === 'pred.depth' && msg.token_id === token.token_id) {
           setBook(msg as OrderBookSnapshot)
         } else if (msg.channel === 'pred.trades') {
@@ -213,16 +215,12 @@ function TradingPanel({
         } else if (msg.channel === 'pred.bbo' && msg.token_id === token.token_id) {
           setLastPrice(msg.last_price)
         }
-      } catch {
-        /* ignore */
-      }
-    }
-    ws.onerror = () => {
-      /* silent — REST polling still works */
-    }
+      },
+    })
+    socket.connect()
     return () => {
       cancelled = true
-      ws?.close()
+      socket.close()
     }
   }, [token.token_id])
 
@@ -233,6 +231,22 @@ function TradingPanel({
     <div className="grid gap-6 lg:grid-cols-[1fr_360px_320px]">
       {/* Chart + book column */}
       <div className="space-y-6">
+        <div className="flex justify-end">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] ${
+              socketState === 'open'
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                socketState === 'open' ? 'bg-emerald-400' : 'animate-pulse bg-amber-400'
+              }`}
+            />
+            {socketState === 'open' ? 'Live stream' : `Stream ${socketState}`}
+          </span>
+        </div>
         <PriceChart token={token} lastPrice={lastPrice} />
         <OrderBookLadder
           bids={bids}
@@ -268,6 +282,10 @@ function TradingPanel({
 function PriceChart({ token, lastPrice }: { token: OutcomeToken; lastPrice: number | null }) {
   const [resolution, setResolution] = useState('1m')
   const [candles, setCandles] = useState<Candle[] | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -285,26 +303,99 @@ function PriceChart({ token, lastPrice }: { token: OutcomeToken; lastPrice: numb
     }
   }, [token.token_id, resolution, lastPrice])
 
-  const total = (candles || []).length
-  const width = 600
-  const height = 160
-  const points =
-    candles && candles.length > 1
-      ? candles
-          .map((c, i) => {
-            const x = (i / (total - 1)) * width
-            const y = height - (c.close - 0.01) / 0.98 * height
-            return `${x.toFixed(1)},${y.toFixed(1)}`
-          })
-          .join(' ')
-      : null
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 180,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#94a3b8',
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: '#1e293b' },
+        horzLines: { color: '#1e293b' },
+      },
+      rightPriceScale: {
+        borderColor: '#1e293b',
+        scaleMargins: { top: 0.1, bottom: 0.25 },
+      },
+      timeScale: {
+        borderColor: '#1e293b',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    })
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#34d399',
+      downColor: '#f43f5e',
+      borderVisible: false,
+      wickUpColor: '#34d399',
+      wickDownColor: '#f43f5e',
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    })
+    const volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+    })
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    })
+    chartRef.current = chart
+    candleSeriesRef.current = candleSeries
+    volumeSeriesRef.current = volumeSeries
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0
+      if (width > 0) chart.applyOptions({ width })
+    })
+    observer.observe(container)
+
+    return () => {
+      observer.disconnect()
+      chart.remove()
+      chartRef.current = null
+      candleSeriesRef.current = null
+      volumeSeriesRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current
+    const volumeSeries = volumeSeriesRef.current
+    if (!candleSeries || !volumeSeries) return
+    const rows = (candles || [])
+      .filter((c) => Number.isFinite(c.timestamp))
+      .map((c) => ({
+        time: c.timestamp as UTCTimestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+      }))
+    candleSeries.setData(rows)
+    volumeSeries.setData(
+      (candles || [])
+        .filter((c) => Number.isFinite(c.timestamp))
+        .map((c) => ({
+          time: c.timestamp as UTCTimestamp,
+          value: c.volume,
+          color: c.close >= c.open ? 'rgba(52,211,153,0.35)' : 'rgba(244,63,94,0.35)',
+        }))
+    )
+    chartRef.current?.timeScale().fitContent()
+  }, [candles])
+
+  const hasData = Boolean(candles && candles.length > 0)
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="text-[11px] uppercase tracking-wide text-slate-500">
-            {token.symbol} probability
+            {token.symbol} · OHLCV
           </div>
           <div className="mt-0.5 flex items-baseline gap-2">
             <span className="font-mono text-2xl font-bold text-emerald-400">
@@ -331,26 +422,18 @@ function PriceChart({ token, lastPrice }: { token: OutcomeToken; lastPrice: numb
           ))}
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full" preserveAspectRatio="none">
-        {[0.25, 0.5, 0.75].map((g) => (
-          <line
-            key={g}
-            x1={0}
-            x2={width}
-            y1={height - g * height}
-            y2={height - g * height}
-            stroke="#1e293b"
-            strokeDasharray="4 6"
-          />
-        ))}
-        {points ? (
-          <polyline points={points} fill="none" stroke="#34d399" strokeWidth={2} />
-        ) : (
-          <text x="50%" y="50%" textAnchor="middle" fill="#475569" fontSize="12">
+      <div className="relative">
+        <div ref={containerRef} className="h-[180px] w-full" />
+        {!hasData && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-slate-500">
             {candles == null ? 'Loading price history…' : 'No trades yet — be the first to quote'}
-          </text>
+          </div>
         )}
-      </svg>
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[10px] text-slate-600">
+        <span>Candles + volume histogram · {resolution}</span>
+        <span>Hardware-accelerated canvas</span>
+      </div>
     </div>
   )
 }

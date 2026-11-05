@@ -40,6 +40,16 @@ async def test_websocket_public_ping_and_subscribe(ws_client):
 
 
 @pytest.mark.anyio
+async def test_websocket_depth_resync(ws_client):
+    with ws_client.websocket_connect("/api/v4/prediction/ws/public") as ws:
+        ws.send_json({"action": "resync", "token_id": "resync-token"})
+        msg = ws.receive_json()
+        assert msg["channel"] == "pred.depth"
+        assert msg["token_id"] == "resync-token"
+        assert "stream_sequence" in msg
+
+
+@pytest.mark.anyio
 async def test_websocket_private_rejects_bad_auth(ws_client):
     # Missing token AND closing on first invalid auth action.
     with pytest.raises(Exception), ws_client.websocket_connect(

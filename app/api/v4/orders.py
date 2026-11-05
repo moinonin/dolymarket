@@ -1,16 +1,29 @@
 """Private order management endpoints (submit, list, cancel, batch cancel)."""
+import hashlib
+import json
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_async_session
-from app.engine.clob import MatchingEngine, OrderRejected
-from app.models.domain import Market, Order, OutcomeToken, User
-from app.services import collateral
+from app.engine.clob import MatchingEngine, OrderRejected, OrderBook
+from app.models.domain import (
+    Desk,
+    DeskPosition,
+    IdempotencyRecord,
+    Market,
+    Order,
+    OutcomeToken,
+    TradeFill,
+    User,
+)
+from app.services import collateral, copy_engine, desk_track_record
 from app.ws.broadcaster import broadcast_engine_events
 
 router = APIRouter(prefix="/api/v4/prediction", tags=["orders"])
@@ -25,6 +38,7 @@ class CreateOrderRequest(BaseModel):
     amount: float
     time_in_force: str = Field(default="GTC", max_length=10)
     post_only: bool = False
+    desk_id: str | None = None
 
     @field_validator("side")
     @classmethod
@@ -69,12 +83,84 @@ def _order_payload(o: Order) -> dict:
     }
 
 
+def _request_hash(body: CreateOrderRequest) -> str:
+    canonical = json.dumps(body.model_dump(), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+async def _replay_idempotent(
+    session: AsyncSession,
+    user_id: str,
+    key: str | None,
+    request_hash: str,
+) -> JSONResponse | None:
+    if not key:
+        return None
+    row = (
+        await session.execute(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.user_id == user_id,
+                IdempotencyRecord.key == key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    if row.request_hash != request_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="X-Idempotency-Key reused with a different order payload",
+        )
+    return JSONResponse(
+        status_code=row.status_code,
+        content=json.loads(row.response_json),
+        headers={"Idempotent-Replay": "true"},
+    )
+
+
+def _store_idempotent(
+    session: AsyncSession,
+    user_id: str,
+    key: str | None,
+    request_hash: str,
+    payload: dict,
+    status_code: int = 201,
+) -> None:
+    if not key:
+        return
+    session.add(
+        IdempotencyRecord(
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            status_code=status_code,
+            response_json=json.dumps(payload, default=str),
+        )
+    )
+
+
 @router.post("/orders", status_code=201)
 async def submit_order(
     body: CreateOrderRequest,
+    idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
+    if idempotency_key is not None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 255:
+            raise HTTPException(
+                status_code=422,
+                detail="X-Idempotency-Key must be 1-255 characters",
+            )
+
+    req_hash = _request_hash(body)
+    replay = await _replay_idempotent(
+        session, user.id, idempotency_key, req_hash
+    )
+    if replay is not None:
+        return replay
+
     market = (
         await session.execute(select(Market).where(Market.id == body.market_id))
     ).scalar_one_or_none()
@@ -91,6 +177,38 @@ async def submit_order(
     if token is None:
         raise HTTPException(status_code=404, detail="Token not found for this market")
 
+    # Pro Desks: optional desk tagging and conflict guards.
+    desk = None
+    if body.desk_id is not None:
+        desk = (await session.execute(select(Desk).where(Desk.id == body.desk_id))).scalar_one_or_none()
+        if desk is None:
+            raise HTTPException(status_code=404, detail="Desk not found")
+        if desk.owner_user_id != user.id:
+            raise HTTPException(status_code=403, detail="DESK_ORDER_FORBIDDEN")
+        if desk.status != "ACTIVE":
+            raise HTTPException(status_code=409, detail="DESK_NOT_ACTIVE")
+    else:
+        # Untagged personal order: reject if the caller's ACTIVE desk holds a
+        # non-zero position in this market (anti front-running).
+        caller_desk = (
+            await session.execute(
+                select(Desk).where(
+                    Desk.owner_user_id == user.id, Desk.status == "ACTIVE"
+                )
+            )
+        ).scalar_one_or_none()
+        if caller_desk is not None:
+            pos = (
+                await session.execute(
+                    select(DeskPosition).where(
+                        DeskPosition.desk_id == caller_desk.id,
+                        DeskPosition.market_id == market.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if pos is not None and Decimal(str(pos.shares)) != 0:
+                raise HTTPException(status_code=409, detail="DESK_MARKET_CONFLICT")
+
     engine = MatchingEngine(broadcaster=broadcast_engine_events)
     try:
         order = await engine.submit_order(
@@ -105,11 +223,12 @@ async def submit_order(
             order_type=body.type,
             time_in_force=body.time_in_force,
             post_only=body.post_only,
+            desk_id=desk.id if desk is not None else None,
         )
     except OrderRejected as exc:
         if exc.rejected:
             await session.commit()
-            return {
+            payload = {
                 "order": {
                     "id": None,
                     "market_id": body.market_id,
@@ -123,13 +242,47 @@ async def submit_order(
                 },
                 "fills": [],
             }
+            _store_idempotent(
+                session, user.id, idempotency_key, req_hash, payload
+            )
+            return payload
         raise HTTPException(status_code=exc.http_status, detail=exc.detail)
+    except HTTPException as exc:
+        if desk is not None and exc.status_code == 400 and "insufficient" in (exc.detail or "").lower():
+            desk.status = "SUSPENDED"
+            desk.review_note = "INSUFFICIENT_OPERATOR_FUNDS"
+            desk.suspended_at = datetime.now(UTC)
+            await session.commit()
+        raise
 
     fills = (
         await session.execute(
-            select(_fill_model()).where(_fill_model().taker_order_id == order.id)
+            select(TradeFill).where(TradeFill.taker_order_id == order.id)
         )
     ).scalars().all()
+
+    # Pro Desks: update the desk position and mirror each fill to followers.
+    if desk is not None:
+        try:
+            await desk_track_record.maybe_apply_breakers(session, desk)
+            for f in fills:
+                await copy_engine._update_desk_position(
+                    session,
+                    desk,
+                    market,
+                    token,
+                    Decimal(str(f.shares)),
+                    Decimal(str(f.price)),
+                    body.side,
+                )
+            if desk.status == "ACTIVE":
+                for f in fills:
+                    await copy_engine.mirror_source_fill(
+                        session, desk, f, market, token, broadcast_engine_events
+                    )
+        except Exception:
+            # Mirroring must never invalidate the desk's own fill.
+            pass
 
     payload = {
         "order": _order_payload(order),
@@ -140,18 +293,14 @@ async def submit_order(
                 "shares": float(f.shares),
                 "maker_fee": float(f.maker_fee or 0),
                 "taker_fee": float(f.taker_fee or 0),
+                "sequence_id": f.sequence_id,
                 "timestamp": str(f.timestamp),
             }
             for f in fills
         ],
     }
+    _store_idempotent(session, user.id, idempotency_key, req_hash, payload)
     return payload
-
-
-def _fill_model():
-    from app.models.domain import TradeFill
-
-    return TradeFill
 
 
 @router.get("/orders")
@@ -195,9 +344,17 @@ async def batch_cancel(
         )
     engine = MatchingEngine()
     cancelled_ids = []
+    depth_events: list[dict] = []
+    seen_tokens: set[str] = set()
     for order in (await session.execute(stmt)).scalars().all():
         await engine.cancel_order(session, order, collateral)
         cancelled_ids.append(order.id)
+        if order.token_id not in seen_tokens:
+            seen_tokens.add(order.token_id)
+            snapshot = await OrderBook(session, order.token_id).snapshot()
+            depth_events.append({"channel": "pred.depth", **snapshot})
+    if cancelled_ids:
+        await broadcast_engine_events(depth_events)
     return {
         "cancelled_count": len(cancelled_ids),
         "cancelled_order_ids": cancelled_ids,
@@ -228,7 +385,8 @@ async def cancel_order(
     engine = MatchingEngine()
     result = await engine.cancel_order(session, order, collateral)
     status_changed = {"channel": "pred.orders", "user_id": user.id, **result}
-    from app.ws.broadcaster import broadcast_engine_events as b
-
-    await b([status_changed])
+    snapshot = await OrderBook(session, order.token_id).snapshot()
+    await broadcast_engine_events(
+        [status_changed, {"channel": "pred.depth", **snapshot}]
+    )
     return result

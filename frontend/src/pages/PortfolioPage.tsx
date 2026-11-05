@@ -4,23 +4,31 @@ import {
   ArrowUpRight,
   CircleDollarSign,
   Clock,
+  Fingerprint,
+  KeyRound,
+  Loader2,
   Lock,
+  ShieldCheck,
+  Trash2,
   TrendingUp,
   Wallet,
 } from 'lucide-react'
+import { startRegistration } from '@simplewebauthn/browser'
 import {
   api,
   type Balance,
   type LedgerEntry,
   type Order,
+  type PasskeyCredentialInfo,
   type Position,
 } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import { Skeleton, StatusPill } from '../components/ui'
+import { subscribePendingOrders } from '../api/optimisticOrders'
 import { useToast } from '../context/toast'
 import CashLedgerModal from '../components/CashLedgerModal'
 
-type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger'
+type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger' | 'security'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'positions', label: 'Active Positions' },
@@ -28,6 +36,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'orders', label: 'Open Orders' },
   { key: 'trades', label: 'Execution History' },
   { key: 'ledger', label: 'Cash Ledger' },
+  { key: 'security', label: 'Security' },
 ]
 
 export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: string) => void }) {
@@ -40,6 +49,9 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
   const [ledger, setLedger] = useState<LedgerEntry[] | null>(null)
   const [ledgerModal, setLedgerModal] = useState<'deposit' | 'withdraw' | null>(null)
   const [loading, setLoading] = useState(true)
+  const [pendingOrders, setPendingOrders] = useState<Order[]>([])
+
+  useEffect(() => subscribePendingOrders(setPendingOrders), [])
 
   async function refresh() {
     if (!user) return
@@ -88,9 +100,14 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
   const settledPositions = (positions || []).filter(
     (p) => p.market_status === 'RESOLVED'
   )
-  const activeOrders = (orders || []).filter(
-    (o) => o.status === 'OPEN' || o.status === 'PARTIALLY_FILLED'
-  )
+  const activeOrders = [
+    ...pendingOrders,
+    ...(orders || []).filter(
+      (o) =>
+        (o.status === 'OPEN' || o.status === 'PARTIALLY_FILLED') &&
+        !pendingOrders.some((pending) => pending.id === o.id)
+    ),
+  ]
   const totalUnrealized = (openPositions || []).reduce(
     (acc, p) => acc + (p.unrealized_pnl || 0),
     0
@@ -173,6 +190,7 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
         )}
         {tab === 'trades' && <TradesTable fills={tradeFills} loading={loading} />}
         {tab === 'ledger' && <LedgerTable entries={ledger} loading={loading} />}
+        {tab === 'security' && <SecurityPanel />}
       </div>
 
       {ledgerModal && balance && (
@@ -513,7 +531,12 @@ function OrdersTable({
           </thead>
           <tbody className="divide-y divide-slate-800/70">
             {orders.map((o) => (
-              <tr key={o.id} className="hover:bg-slate-900/50">
+              <tr
+                key={o.id}
+                className={`hover:bg-slate-900/50 ${
+                  o.pending ? 'animate-pulse bg-amber-500/5' : ''
+                }`}
+              >
                 <Td mono>{new Date(o.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Td>
                 <Td className="text-slate-300">{o.token_id.slice(0, 18)}…</Td>
                 <Td><TokenChip symbol={o.side} /></Td>
@@ -523,11 +546,20 @@ function OrdersTable({
                 >
                   {((o.filled_amount / Math.max(1, o.amount)) * 100).toFixed(0)}%
                 </Td>
-                <Td><StatusPill status={o.status} /></Td>
+                <Td>
+                  {o.pending ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300">
+                      <span className="h-1.5 w-1.5 animate-ping rounded-full bg-amber-400" />
+                      Pending
+                    </span>
+                  ) : (
+                    <StatusPill status={o.status} />
+                  )}
+                </Td>
                 <Td right>
                   <button
-                    disabled={busy === o.id}
-                    onClick={() => cancel(o.id)}
+                    disabled={busy === o.id || o.pending || !o.id}
+                    onClick={() => o.id && cancel(o.id)}
                     className="rounded-md border border-slate-700 px-2.5 py-1 text-[10px] font-medium text-slate-300 transition hover:border-rose-500/50 hover:text-rose-300 disabled:opacity-40"
                   >
                     {busy === o.id ? '…' : 'Cancel'}
@@ -620,6 +652,153 @@ function LedgerTable({ entries, loading }: { entries: LedgerEntry[] | null; load
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function SecurityPanel() {
+  const { push } = useToast()
+  const [passkeys, setPasskeys] = useState<PasskeyCredentialInfo[] | null>(null)
+  const [registering, setRegistering] = useState(false)
+  const [revoking, setRevoking] = useState<string | null>(null)
+
+  async function load() {
+    try {
+      const res = await api.listPasskeys()
+      setPasskeys(res.passkeys)
+    } catch {
+      setPasskeys([])
+    }
+  }
+
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function registerPasskey() {
+    setRegistering(true)
+    try {
+      const options = await api.passkeyRegisterOptions()
+      const credential = await startRegistration({
+        optionsJSON: options.publicKey,
+      })
+      await api.passkeyRegisterVerify(credential)
+      push('Passkey registered — you can now sign in without a password.', 'info')
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Passkey registration failed', 'error')
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  async function revoke(credentialId: string) {
+    setRevoking(credentialId)
+    try {
+      await api.deletePasskey(credentialId)
+      push('Passkey revoked.', 'info')
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Could not revoke the passkey', 'error')
+    } finally {
+      setRevoking(null)
+    }
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Fingerprint className="h-4 w-4 text-emerald-400" />
+              Passkeys
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Sign in with Face ID, Touch ID, a security key or your device
+              PIN — no password required.
+            </p>
+          </div>
+          <button
+            onClick={registerPasskey}
+            disabled={registering}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          >
+            {registering ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <KeyRound className="h-3.5 w-3.5" />
+            )}
+            {registering ? 'Waiting…' : 'Add passkey'}
+          </button>
+        </div>
+
+        <div className="mt-4">
+          {passkeys == null ? (
+            <Skeleton className="h-20 w-full" />
+          ) : passkeys.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 py-8 text-center">
+              <p className="text-xs font-medium text-slate-300">No passkeys yet</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Register one to sign in with your device instead of a password.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {passkeys.map((p) => (
+                <li
+                  key={p.credential_id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-slate-200">
+                      {p.label || 'Passkey'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Added {new Date(p.created_at).toLocaleDateString()}
+                      {p.last_used_at
+                        ? ` · last used ${new Date(p.last_used_at).toLocaleDateString()}`
+                        : ''}
+                      {` · counter ${p.sign_count}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => revoke(p.credential_id)}
+                    disabled={revoking === p.credential_id}
+                    className="flex shrink-0 items-center gap-1 rounded-md border border-rose-500/40 px-2 py-1 text-[10px] font-medium text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+          <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          Account security
+        </h3>
+        <ul className="mt-3 space-y-2.5 text-xs text-slate-400">
+          <li className="flex items-start gap-2">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+            Passwords are hashed with native bcrypt; federated accounts have no
+            usable password.
+          </li>
+          <li className="flex items-start gap-2">
+            <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+            Algorithmic traders can rotate an HMAC-signed API key from the API
+            and sign every request.
+          </li>
+          <li className="flex items-start gap-2">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+            Sign-in and order endpoints are rate limited per IP and credential.
+          </li>
+        </ul>
+      </div>
     </div>
   )
 }

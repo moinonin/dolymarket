@@ -23,7 +23,7 @@ async def public_ws(ws: WebSocket):
             action = msg.get("action")
             channel = msg.get("channel")
             if action == "subscribe":
-                if channel in ("pred.depth", "pred.bbo"):
+                if channel in ("pred.depth", "pred.bbo", "pred.book_delta"):
                     token_id = msg.get("token_id")
                     if token_id:
                         manager.subscribe(ws, token_id)
@@ -36,6 +36,16 @@ async def public_ws(ws: WebSocket):
                         await manager.send_json(ws, record)
                 elif channel in ("pred.trades", "pred.status", "pred.candlestick"):
                     manager.subscribe(ws, channel)
+            elif action in ("resync", "snapshot"):
+                # Catch-up request after a detected sequence gap or reconnect.
+                token_id = msg.get("token_id")
+                if token_id:
+                    from app.db.session import AsyncSessionLocal
+
+                    async with AsyncSessionLocal() as session:
+                        book = OrderBook(session, token_id)
+                        record = {"channel": "pred.depth", **await book.snapshot()}
+                    await manager.send_json(ws, record)
             elif action == "ping":
                 await manager.send_json(ws, {"action": "pong"})
     except WebSocketDisconnect:

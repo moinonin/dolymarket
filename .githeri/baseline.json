@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "created_at": "2026-11-04T21:31:38.712463+00:00",
+  "total_routes": 43,
+  "total_test_files": 12,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "file": "app/main.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/register",
+      "file": "app/api/v1/auth.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "file": "app/api/v1/auth.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/me",
+      "file": "app/api/v1/auth.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/api-key",
+      "file": "app/api/v1/auth.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/passkey/register/options",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/passkey/register/verify",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/passkey/login/options",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/passkey/login/verify",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/passkey/credentials",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/auth/passkey/credentials/{credential_id}",
+      "file": "app/api/v1/passkey.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/collateral/balance",
+      "file": "app/api/v1/collateral.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/collateral/deposit",
+      "file": "app/api/v1/collateral.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/collateral/withdraw",
+      "file": "app/api/v1/collateral.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/collateral/ledger",
+      "file": "app/api/v1/collateral.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oauth/providers",
+      "file": "app/api/v1/oauth.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oauth/{provider}/start",
+      "file": "app/api/v1/oauth.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oauth/{provider}/callback",
+      "file": "app/api/v1/oauth.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/oauth/exchange",
+      "file": "app/api/v1/oauth.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/events",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/events/{event_id}",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/events/slug/{slug}",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/markets",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/markets/{market_id}",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/tokens/{token_id}/order_book",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/tokens/{token_id}/price",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/tokens/{token_id}/ticker",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/tokens/{token_id}/price_history",
+      "file": "app/api/v4/public.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/orders",
+      "file": "app/api/v4/orders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/orders",
+      "file": "app/api/v4/orders.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v4/prediction/orders",
+      "file": "app/api/v4/orders.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v4/prediction/orders/{order_id}",
+      "file": "app/api/v4/orders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/positions",
+      "file": "app/api/v4/positions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/positions/split",
+      "file": "app/api/v4/positions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/positions/merge",
+      "file": "app/api/v4/positions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/positions/{position_id}/redeem",
+      "file": "app/api/v4/positions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/admin/markets/{market_id}/close",
+      "file": "app/api/v4/admin.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/admin/events",
+      "file": "app/api/v4/admin.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/admin/markets",
+      "file": "app/api/v4/admin.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/resolution/propose",
+      "file": "app/api/v4/resolution.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/resolution/dispute",
+      "file": "app/api/v4/resolution.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v4/prediction/resolution/finalize",
+      "file": "app/api/v4/resolution.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v4/prediction/resolution/markets",
+      "file": "app/api/v4/resolution.py"
+    }
+  ],
+  "test_files": [
+    "tests/__init__.py",
+    "tests/conftest.py",
+    "tests/test_api_endpoints.py",
+    "tests/test_auth_collateral.py",
+    "tests/test_clob_engine.py",
+    "tests/test_models.py",
+    "tests/test_oauth.py",
+    "tests/test_passkey.py",
+    "tests/test_production_improvements.py",
+    "tests/test_route_baseline.py",
+    "tests/test_websocket_stream.py",
+    "tests/webauthn_helpers.py"
+  ]
+}

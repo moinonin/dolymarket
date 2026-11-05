@@ -4,6 +4,7 @@ a small seeded order book so the UI shows a live CLOB from first launch.
 Seeding is idempotent: it only runs when the events table is empty.
 """
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -146,6 +147,11 @@ async def seed(session: AsyncSession) -> None:
         except Exception as exc:  # pragma: no cover - seed best-effort
             logger.warning("Seed book skipped for %s: %s", spec["slug"], exc)
 
+    try:
+        await _seed_desks(session, trader, mm)
+    except Exception as exc:  # pragma: no cover - seed best-effort
+        logger.warning("Desk seed skipped: %s", exc)
+
     await session.commit()
 
 
@@ -177,3 +183,71 @@ def _fake_condition(slug: str) -> str:
     import uuid
 
     return "0x" + hashlib.sha1(f"{slug}:{uuid.uuid4()}".encode()).hexdigest()
+
+
+async def _seed_desks(session, trader, mm) -> None:
+    """Seed a couple of live Pro Desks with track records so the UI is populated."""
+    from app.models.domain import Desk, DeskFollower, DeskPosition, Event, Market, OutcomeToken, Order, TradeFill
+
+    # Macro desk owned by the demo trader.
+    macro = Desk(owner_user_id=trader.id, name="Macro Desk", slug="macro-desk",
+                 description="Macro event probabilities.", status="ACTIVE")
+    macro.activated_at = datetime.now(UTC)
+    session.add(macro)
+    await session.flush()
+
+    crypto = Desk(owner_user_id=mm.id, name="Crypto Desk", slug="crypto-desk",
+                  description="Crypto market timing.", status="ACTIVE")
+    crypto.activated_at = datetime.now(UTC)
+    session.add(crypto)
+    await session.flush()
+
+    # A resolved market backing the macro desk's track record.
+    event = Event(slug="seed-resolved-macro", title="Resolved Macro", category="Macro")
+    session.add(event)
+    await session.flush()
+    market = Market(
+        event_id=event.id, question="Resolved macro outcome?",
+        outcomes=["YES", "NO"], tick_size=Decimal("0.01"), min_order_size=Decimal(5),
+        status="RESOLVED", winning_outcome_index=0, condition_id="0xseedmacro",
+    )
+    session.add(market)
+    await session.flush()
+    tok = OutcomeToken(market_id=market.id, token_id=f"{market.condition_id}-0",
+                       outcome_index=0, symbol="YES")
+    session.add(tok)
+    await session.flush()
+
+    # Two settled positions (worked example): one win, one loss.
+    session.add(DeskPosition(
+        desk_id=macro.id, market_id=market.id, token_id=f"{market.condition_id}-0",
+        outcome_index=0, shares=Decimal("100.0000"), avg_entry_price=Decimal("0.4000"),
+        realized_pnl_usdc=Decimal("60.0000"), settled_at=datetime.now(UTC),
+    ))
+    session.add(DeskPosition(
+        desk_id=macro.id, market_id=market.id, token_id=f"{market.condition_id}-1",
+        outcome_index=1, shares=Decimal("50.0000"), avg_entry_price=Decimal("0.5500"),
+        realized_pnl_usdc=Decimal("-27.5000"), settled_at=datetime.now(UTC),
+    ))
+    await session.flush()
+
+    # A desk-tagged source fill carrying 0.50 of fees.
+    order = Order(user_id=trader.id, market_id=market.id, token_id=f"{market.condition_id}-0",
+                  side="BUY", type="LIMIT", price=Decimal("0.4000"), amount=Decimal("100"),
+                  status="FILLED", desk_id=macro.id)
+    session.add(order)
+    await session.flush()
+    fill = TradeFill(market_id=market.id, token_id=f"{market.condition_id}-0",
+                     maker_order_id=order.id, taker_order_id=order.id,
+                     maker_user_id=trader.id, taker_user_id=trader.id,
+                     price=Decimal("0.4000"), shares=Decimal("100.0000"),
+                     maker_fee=Decimal("0.5000"), taker_fee=Decimal("0.0000"))
+    session.add(fill)
+    await session.flush()
+
+    # Crypto desk: a second ACTIVE desk with no track record yet.
+    # Follower: trader follows mm's crypto desk.
+    follower = DeskFollower(desk_id=crypto.id, follower_user_id=trader.id,
+                           copy_ratio=Decimal("0.2500"), status="ACTIVE")
+    session.add(follower)
+    await session.flush()
