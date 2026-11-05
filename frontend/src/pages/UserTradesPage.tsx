@@ -35,7 +35,7 @@ export default function UserTradesPage() {
       <div className="mx-auto w-full max-w-3xl px-6 pb-24 pt-12 text-center">
         <TrendingUp className="mx-auto mb-3 h-8 w-8 text-slate-600" />
         <p className="text-sm font-medium text-slate-300">Sign in to view your trades</p>
-        <button onClick={() => openAuth('login')} className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-400">
+        <button onClick={() => openAuth('login')} className="mt-4 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-400">
           Sign in
         </button>
       </div>

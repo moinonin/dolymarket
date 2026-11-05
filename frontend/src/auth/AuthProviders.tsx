@@ -157,7 +157,7 @@ export default function AuthProviders({
               onClick={() => startOAuth(provider)}
               className={`flex items-center justify-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs font-semibold transition ${
                 provider.configured
-                  ? 'border-slate-700 bg-slate-950/60 text-slate-200 hover:border-cyan-500/40 hover:text-white'
+                  ? 'border-slate-700 bg-slate-950/60 text-slate-200 hover:border-emerald-500/40 hover:text-white'
                   : 'cursor-not-allowed border-slate-800 bg-slate-950/30 text-slate-600'
               }`}
             >
@@ -177,12 +177,12 @@ export default function AuthProviders({
           type="button"
           disabled={busy !== null}
           onClick={signInWithPasskey}
-          className="flex items-center justify-center gap-2.5 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-500/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center justify-center gap-2.5 rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy === 'passkey' ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <Fingerprint className="h-4 w-4 text-cyan-400" />
+            <Fingerprint className="h-4 w-4 text-emerald-400" />
           )}
           Sign in with a passkey
         </button>

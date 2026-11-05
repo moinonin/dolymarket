@@ -166,9 +166,9 @@ function Nav({
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6">
         <button
           onClick={() => onNavigate(user ? 'markets' : 'home')}
-          className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-cyan-300"
+          className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
         >
-          <BarChart3 className="h-5 w-5 text-cyan-400" />
+          <BarChart3 className="h-5 w-5 text-emerald-400" />
           DolyMarket
         </button>
 
@@ -195,14 +195,14 @@ function Nav({
             target="_blank"
             rel="noopener noreferrer"
             title="Documentation"
-            className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-cyan-500/40 hover:text-cyan-300"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
           >
             <BookOpen className="h-3 w-3" /> Docs
           </a>
           {user ? (
             <>
               <span className="hidden items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1 text-[11px] text-slate-300 sm:flex">
-                <ShieldCheck className="h-3 w-3 text-cyan-400" />
+                <ShieldCheck className="h-3 w-3 text-emerald-400" />
                 {user.email || 'trader'}
               </span>
               <button
@@ -216,13 +216,13 @@ function Nav({
             <>
               <button
                 onClick={() => onAuth('login')}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-cyan-500/40 hover:text-cyan-300"
+                className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300"
               >
                 <LogIn className="h-3 w-3" /> Sign in
               </button>
               <button
                 onClick={() => onAuth('register')}
-                className="flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 transition hover:bg-cyan-400"
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 transition hover:bg-emerald-400"
               >
                 <UserPlus className="h-3 w-3" /> Register
               </button>

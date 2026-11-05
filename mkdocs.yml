@@ -5,8 +5,8 @@ theme:
   name: material
   palette:
     - scheme: slate
-      primary: emerald
-      accent: emerald
+      primary: indigo
+      accent: indigo
   features:
     - navigation.tabs
     - navigation.sections
