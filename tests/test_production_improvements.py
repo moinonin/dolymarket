@@ -12,7 +12,7 @@ from app.engine.clob import MatchingEngine, OrderBook
 from app.models.domain import Event, Market, OutcomeToken, TradeFill, User
 from app.services import collateral
 from app.services.settlement import split_position
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, make_admin
 
 pytestmark = pytest.mark.asyncio
 
@@ -111,6 +111,7 @@ async def test_in_memory_book_is_shared_and_sequenced():
 
 async def test_idempotency_key_replays_and_conflicts(client: AsyncClient):
     admin = await auth_headers(client, "idem-admin@example.com")
+    await make_admin("idem-admin@example.com")
     await client.post(
         "/api/v4/prediction/admin/events",
         json={"slug": "idem-event", "title": "Idempotency", "category": "Crypto"},

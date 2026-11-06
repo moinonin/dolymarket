@@ -3,7 +3,7 @@
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, make_admin
 
 pytestmark = pytest.mark.asyncio
 
@@ -11,6 +11,7 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture
 async def market_setup(client: AsyncClient):
     headers = await auth_headers(client, "mk-admin@example.com")
+    await make_admin("mk-admin@example.com")
     event = (
         await client.post(
             "/api/v4/prediction/admin/events",

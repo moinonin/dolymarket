@@ -1,0 +1,56 @@
+task_id: operations-console
+status: active
+archetype: brownfield_admin_console
+summary: "Operations console: enforce admin authorization on every admin route, expose the admin flag to the client, and add an admin UI for creating events and markets, closing markets, reviewing Pro Desks and inspecting copy-job history."
+entrypoint: app/main.py
+scope: "Brownfield change to the existing FastAPI + React Dolymarket repository. Harden app/api/v4/admin.py, extend app/api/v1/auth.py with the admin flag, add the admin desk-review and copy-job listings, add frontend/src/pages/AdminPage.tsx and frontend/src/pages/CopyActivityPage.tsx, extend frontend/src/api/client.ts and frontend/src/auth/AuthProvider.tsx, wire the routes and nav in frontend/src/App.tsx and cover the authorization contract with hermetic tests. Do not scaffold a new project and do not regenerate existing files."
+out_of_scope:
+  - "Trading on upstream DexBuilder markets, which stays read-only until the upstream credential is accepted"
+  - "Resolving markets from the console; resolution keeps its existing dedicated flow"
+  - "Multi-tenant roles beyond the existing admin flag"
+assumptions:
+  - "The admin flag is the existing User.is_admin column; no new role model is introduced"
+  - "The local market universe (seeded plus admin-created) stays the only tradeable universe"
+  - "Copy jobs are produced by the existing copy engine; the console only lists them"
+business_rules:
+  - name: "Admin Routes Require Admin"
+    formula: "Every route under /api/v4/prediction/admin answers HTTP 403 ADMIN_REQUIRED when the authenticated account is not an admin; creating an event, creating a market and closing a market are admin-only operations."
+  - name: "Admin Flag Is Exposed"
+    formula: "GET /api/v1/auth/me reports is_admin so the client can show the console only to admins; the flag is advisory for the UI and the server stays the authority."
+  - name: "Review Queue"
+    formula: "GET /api/v4/prediction/admin/desks lists desks for review, defaulting to status PENDING_REVIEW, with the owner email, follower count and review note; the response is capped at 100 rows."
+  - name: "Copy Job History"
+    formula: "GET /api/v4/prediction/admin/copy-jobs lists copy jobs across every account with the desk name and follower email, newest first, optionally filtered by status; the signed-in trader's own jobs stay available at GET /api/v1/copy-jobs."
+  - name: "Console Requires Live Data"
+    formula: "Every console view binds to the API client; loading, empty and error states are rendered for each panel, and no panel falls back to hardcoded sample rows."
+endpoints:
+  - method: GET
+    path: /api/v4/prediction/admin/desks
+  - method: GET
+    path: /api/v4/prediction/admin/copy-jobs
+  - method: GET
+    path: /api/v1/copy-jobs
+acceptance_criteria:
+  - test: "Admin routes reject a non-admin"
+    steps: "With a regular authenticated account, assert POST /api/v4/prediction/admin/events, POST /api/v4/prediction/admin/markets, POST /api/v4/prediction/admin/markets/{id}/close, GET /api/v4/prediction/admin/desks and GET /api/v4/prediction/admin/copy-jobs all answer HTTP 403 with detail ADMIN_REQUIRED."
+  - test: "Admin console workflow"
+    steps: "With an admin account, assert POST /api/v4/prediction/admin/events creates an event, POST /api/v4/prediction/admin/markets creates a market with outcome tokens, and GET /api/v4/prediction/admin/desks returns the pending desk with its owner email."
+  - test: "Copy job history"
+    steps: "Assert GET /api/v4/prediction/admin/copy-jobs returns the copy jobs with desk name, follower email, status, copy ratio and requested/filled shares, and that a non-admin receives HTTP 403."
+  - test: "Admin flag exposure"
+    steps: "Assert GET /api/v1/auth/me reports is_admin=true for an admin account and is_admin=false for a regular account."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "httpx", "pydantic", "pytest", "pytest-asyncio"]
+  env_vars:
+    DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    JWT_SECRET: "test-secret-key-1234567890abcdef"
+  services: []
+global_verification:
+  - "pytest tests/test_admin_console.py"
+  - "pytest tests/test_desks.py"
+  - "pytest tests/test_api_endpoints.py"
+context:
+  language: Python
+  framework: FastAPI
+  test_framework: pytest

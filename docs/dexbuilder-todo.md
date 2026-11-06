@@ -80,6 +80,7 @@ means the key itself is unknown to DexBuilder (a wrong signature answers
 - [x] Implement the official REST signing scheme (HMAC-SHA512 over `METHOD\nPATH\nQUERY\nSHA512(body)\nTIMESTAMP`) and report upstream credential rejection as `DEXBUILDER_UPSTREAM_UNAUTHORIZED` with the upstream label.
 - [x] Add a credential diagnostic (`GET /api/v4/prediction/live/auth`) that never exposes the key or the secret.
 - [ ] Obtain a valid DexBuilder prediction-markets API key and verify usertrades/positions/assets/account_book/fee/claims end-to-end (currently blocked by `INVALID_KEY`).
-- [ ] Admin UI for creating events/markets and reviewing Pro Desks.
+- [x] Admin console: create events and markets, close markets, review Pro Desks and audit copy jobs (admin-only routes, `is_admin` exposed to the client).
+- [x] Copy-job history view for the trader (Activity) and for admins (console tab).
 - [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the client currently reads `VITE_WS_URL`; `VITE_DEXBUILDER_WS_URL` is unused; the broker answers 503).
-- [ ] Route live markets into the trade ticket once upstream order placement is authenticated.
+- [ ] Route live markets into the trade ticket once upstream order placement is authenticated (upstream markets stay read-only until then).

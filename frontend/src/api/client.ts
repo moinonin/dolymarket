@@ -177,6 +177,37 @@ export interface LiveAuthStatus {
   } | null;
 }
 
+/** Desk entry in the admin review queue. */
+export interface AdminDesk {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+  review_note: string | null;
+  owner_email: string | null;
+  follower_count: number;
+  created_at: string;
+  activated_at: string | null;
+  suspended_at: string | null;
+}
+
+/** Copy job in the admin history listing. */
+export interface AdminCopyJob {
+  id: string;
+  desk_id: string;
+  desk_name: string | null;
+  follower_email: string | null;
+  source_fill_id: string;
+  status: string;
+  copy_ratio: number;
+  requested_shares: number;
+  filled_shares: number;
+  limit_breached: boolean;
+  error_code: string | null;
+  created_at: string;
+}
+
 export interface Order {
   id: string | null;
   market_id: string;
@@ -240,7 +271,7 @@ export interface LedgerEntry {
 export interface AuthResponse {
   access_token: string;
   token_type: string;
-  user: { id: string; email: string };
+  user: { id: string; email: string; is_admin?: boolean };
 }
 
 export interface OAuthProviderInfo {
@@ -410,7 +441,7 @@ export class ApiClient {
   }
 
   /** Profile of the authenticated account. */
-  getMe(): Promise<{ id: string; email: string; created_at: string }> {
+  getMe(): Promise<{ id: string; email: string; created_at: string; is_admin: boolean }> {
     return this.request('/api/v1/auth/me');
   }
 
@@ -650,6 +681,34 @@ export class ApiClient {
     if (params.limit) q.set('limit', String(params.limit));
     const qs = q.toString();
     return this.request(`/api/v1/copy-jobs${qs ? '?' + qs : ''}`);
+  }
+
+  // ---- Operations console (admin only) -------------------------------------
+
+  listAdminDesks(status = 'PENDING_REVIEW'): Promise<{ desks: AdminDesk[]; status: string | null }> {
+    const q = new URLSearchParams();
+    if (status) q.set('status', status);
+    const qs = q.toString();
+    return this.request(`/api/v4/prediction/admin/desks${qs ? '?' + qs : ''}`);
+  }
+  approveDesk(id: string): Promise<{ status: string; desk_id: string }> {
+    return this.request(`/api/v4/prediction/admin/desks/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+  }
+  rejectDesk(id: string, reason: string): Promise<{ status: string; desk_id: string }> {
+    return this.request(`/api/v4/prediction/admin/desks/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+  adminSuspendDesk(id: string): Promise<{ status: string; desk_id: string }> {
+    return this.request(`/api/v4/prediction/admin/desks/${encodeURIComponent(id)}/suspend`, { method: 'POST' });
+  }
+  listAdminCopyJobs(params: { status?: string; limit?: number } = {}): Promise<{ jobs: AdminCopyJob[] }> {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return this.request(`/api/v4/prediction/admin/copy-jobs${qs ? '?' + qs : ''}`);
   }
 
   // ---- DexBuilder parity / extended prediction surfaces --------------------

@@ -24,6 +24,8 @@ import EventDetailPage from './pages/EventDetailPage'
 import PortfolioPage from './pages/PortfolioPage'
 import ResolutionPage from './pages/ResolutionPage'
 import DesksPage from './pages/DesksPage'
+import AdminPage from './pages/AdminPage'
+import CopyActivityPage from './pages/CopyActivityPage'
 import DeskDetailPage from './pages/DeskDetailPage'
 import TagsPage from './pages/TagsPage'
 import UserTradesPage from './pages/UserTradesPage'
@@ -112,6 +114,10 @@ function Shell() {
     page = <PortfolioWrapper onNavigate={navigate} />
   } else if (section === 'resolution') {
     page = <ResolutionPage />
+  } else if (section === 'activity') {
+    page = <CopyActivityPage onOpenDesk={(id) => navigate(`desks/${id}`)} />
+  } else if (section === 'admin') {
+    page = user?.is_admin ? <AdminPage /> : <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
   } else {
     page = <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
   }
@@ -147,6 +153,7 @@ const NAV_ITEMS = [
   { key: 'settled', label: 'Settled', icon: Briefcase },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'resolution', label: 'Resolution', icon: Gavel },
+  { key: 'activity', label: 'Activity', icon: Activity },
 ]
 
 const ANON_NAV_ITEMS = [
@@ -166,11 +173,15 @@ function Nav({
 }: {
   section: string
   onNavigate: (to: string) => void
-  user: { id: string; email: string } | null
+  user: { id: string; email: string; is_admin: boolean } | null
   onAuth: (mode: 'login' | 'register') => void
   onLogout: () => void
 }) {
-  const items = user ? NAV_ITEMS : ANON_NAV_ITEMS
+  const items = user
+    ? user.is_admin
+      ? [...NAV_ITEMS, { key: 'admin', label: 'Admin', icon: ShieldCheck }]
+      : NAV_ITEMS
+    : ANON_NAV_ITEMS
   const activeSection = user && section === 'home' ? 'markets' : section
   return (
     <nav className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">

@@ -12,3 +12,19 @@ and mirror the desk's fills proportionally into their own accounts.
   where their desk holds a position.
 
 See `docs/prediction-vault-prompt.md` for the full contract.
+
+## Review and audit
+
+A desk becomes visible in the leaderboard only after an admin approves it.
+
+- **Review queue** — the console (`#/admin`, admin accounts only) lists the desks
+  waiting for review with their owner email and follower count, and can approve,
+  reject (with a reason) or suspend them. The queue is also available as
+  `GET /api/v4/prediction/admin/desks` (`status` defaults to `PENDING_REVIEW`).
+- **Copy activity** — every mirrored order is recorded as a copy job with the
+  requested and filled size. Traders see their own jobs under **Activity**
+  (`GET /api/v1/copy-jobs`); admins see every account's jobs in the console
+  (`GET /api/v4/prediction/admin/copy-jobs`).
+
+Every route under `/api/v4/prediction/admin/*` answers HTTP 403
+`ADMIN_REQUIRED` for a regular account.

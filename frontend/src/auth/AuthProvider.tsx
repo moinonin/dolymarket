@@ -17,6 +17,7 @@ import { useToast } from '../context/toast'
 interface AuthUser {
   id: string
   email: string
+  is_admin: boolean
 }
 
 interface AuthContextValue {
@@ -49,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const me = await api.getMe()
-      setUser({ id: me.id, email: me.email })
+      setUser({ id: me.id, email: me.email, is_admin: Boolean(me.is_admin) })
     } catch {
       setUser(null)
     }
@@ -58,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       const me = await api.getMe()
-      setUser({ id: me.id, email: me.email })
+      setUser({ id: me.id, email: me.email, is_admin: Boolean(me.is_admin) })
     } catch {
       setUser(null)
     }
@@ -91,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function complete(code: string) {
       try {
         const res = await api.oauthExchange(code)
-        setUser({ id: res.user.id, email: res.user.email })
+        setUser({ id: res.user.id, email: res.user.email, is_admin: Boolean(res.user.is_admin) })
         if (window.opener) {
           window.opener.postMessage(
             { type: OAUTH_MESSAGE_TYPE, token: res.access_token, user: res.user },
@@ -120,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = event.data
       if (data?.type !== OAUTH_MESSAGE_TYPE || !data?.token) return
       setStoredToken(data.token)
-      setUser({ id: data.user.id, email: data.user.email })
+      setUser({ id: data.user.id, email: data.user.email, is_admin: Boolean(data.user.is_admin) })
     }
 
     window.addEventListener('message', onMessage)
@@ -147,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           providers={providers}
           onClose={() => setAuthModal(null)}
           onAuthed={async (u) => {
-            setUser({ id: u.id, email: u.email })
+            setUser({ id: u.id, email: u.email, is_admin: Boolean(u.is_admin) })
             setAuthModal(null)
           }}
         />
@@ -164,7 +165,7 @@ interface AuthModalProps {
   mode: 'login' | 'register'
   providers: OAuthProviderInfo[]
   onClose: () => void
-  onAuthed: (user: { id: string; email: string }) => void
+  onAuthed: (user: { id: string; email: string; is_admin?: boolean }) => void
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

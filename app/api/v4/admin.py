@@ -1,16 +1,21 @@
-"""Admin endpoints for creating events and markets (market admin / oracle)."""
+"""Admin endpoints for creating events and markets (market admin / oracle).
+
+Every route in this namespace is admin-only: creating an event, creating a
+market, closing a market, reviewing Pro Desks and inspecting copy-job history
+all answer HTTP 403 ``ADMIN_REQUIRED`` for a regular account.
+"""
 import hashlib
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_async_session
-from app.models.domain import Desk, Event, Market, OutcomeToken, User
+from app.models.domain import CopyJob, Desk, DeskFollower, Event, Market, OutcomeToken, User
 
 router = APIRouter(prefix="/api/v4/prediction/admin", tags=["admin"])
 
@@ -38,6 +43,13 @@ def _condition_id(market_seed: str) -> str:
     return "0x" + hashlib.sha1(market_seed.encode()).hexdigest()
 
 
+async def _require_admin(user: User) -> User:
+    """Every admin route is admin-only."""
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="ADMIN_REQUIRED")
+    return user
+
+
 @router.post("/markets/{market_id}/close")
 async def close_market(
     market_id: str,
@@ -45,6 +57,7 @@ async def close_market(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Trading halt: ACTIVE -> CLOSED. Orders can no longer be placed."""
+    await _require_admin(user)
     market = (
         await session.execute(select(Market).where(Market.id == market_id))
     ).scalar_one_or_none()
@@ -71,6 +84,7 @@ async def create_event(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
+    await _require_admin(user)
     existing = (
         await session.execute(select(Event).where(Event.slug == body.slug))
     ).scalar_one_or_none()
@@ -108,6 +122,7 @@ async def create_market(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
+    await _require_admin(user)
     event = (
         await session.execute(select(Event).where(Event.slug == body.event_slug))
     ).scalar_one_or_none()
@@ -151,12 +166,6 @@ async def create_market(
             for t in tokens
         ],
     }
-
-
-async def _require_admin(user: User) -> User:
-    if not getattr(user, "is_admin", False):
-        raise HTTPException(status_code=403, detail="ADMIN_REQUIRED")
-    return user
 
 
 class RejectDeskRequest(BaseModel):
@@ -217,3 +226,101 @@ async def admin_suspend_desk(
     desk.suspended_at = datetime.now(UTC)
     await session.flush()
     return {"status": "SUSPENDED", "desk_id": desk.id}
+
+
+@router.get("/desks")
+async def list_desks_for_review(
+    status: str = Query(default="PENDING_REVIEW"),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Desk review queue (admin only).
+
+    Defaults to the desks waiting for review; pass ``status=`` to list another
+    lifecycle state (for example ``ACTIVE`` or ``SUSPENDED``).
+    """
+    await _require_admin(user)
+    stmt = select(Desk)
+    if status:
+        stmt = stmt.where(Desk.status == status)
+    desks = (await session.execute(stmt.order_by(Desk.created_at.desc()).limit(limit))).scalars().all()
+
+    out = []
+    for desk in desks:
+        owner = (
+            await session.execute(select(User).where(User.id == desk.owner_user_id))
+        ).scalar_one_or_none()
+        follower_count = (
+            await session.execute(
+                select(DeskFollower).where(DeskFollower.desk_id == desk.id)
+            )
+        ).scalars().all()
+        out.append(
+            {
+                "id": desk.id,
+                "name": desk.name,
+                "slug": desk.slug,
+                "description": desk.description,
+                "status": desk.status,
+                "review_note": desk.review_note,
+                "owner_email": owner.email if owner else None,
+                "follower_count": len(follower_count),
+                "created_at": str(desk.created_at),
+                "activated_at": str(desk.activated_at) if desk.activated_at else None,
+                "suspended_at": str(desk.suspended_at) if desk.suspended_at else None,
+            }
+        )
+    return {"desks": out, "status": status or None}
+
+
+@router.get("/copy-jobs")
+async def list_copy_jobs_admin(
+    status: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Copy-job history across every account (admin only)."""
+    await _require_admin(user)
+    stmt = select(CopyJob)
+    if status:
+        stmt = stmt.where(CopyJob.status == status)
+    jobs = (
+        await session.execute(stmt.order_by(CopyJob.created_at.desc()).limit(limit))
+    ).scalars().all()
+
+    desk_names: dict[str, str] = {}
+    follower_emails: dict[str, str] = {}
+    for job in jobs:
+        if job.desk_id not in desk_names:
+            desk = (
+                await session.execute(select(Desk).where(Desk.id == job.desk_id))
+            ).scalar_one_or_none()
+            desk_names[job.desk_id] = desk.name if desk else job.desk_id
+        if job.follower_user_id not in follower_emails:
+            follower = (
+                await session.execute(select(User).where(User.id == job.follower_user_id))
+            ).scalar_one_or_none()
+            follower_emails[job.follower_user_id] = follower.email if follower else job.follower_user_id
+
+    return {
+        "jobs": [
+            {
+                "id": j.id,
+                "desk_id": j.desk_id,
+                "desk_name": desk_names.get(j.desk_id),
+                "follower_email": follower_emails.get(j.follower_user_id),
+                "source_fill_id": j.source_fill_id,
+                "status": j.status,
+                "copy_ratio": float(j.copy_ratio),
+                "requested_shares": float(j.requested_shares),
+                "filled_shares": float(j.filled_shares),
+                "limit_breached": j.limit_breached,
+                "error_code": j.error_code,
+                "created_at": str(j.created_at),
+            }
+            for j in jobs
+        ],
+        "status": status or None,
+    }

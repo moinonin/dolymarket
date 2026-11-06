@@ -4,7 +4,7 @@ Base URL: `http://localhost:8000` (relative in production).
 
 ## Auth
 - `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
-- `GET /api/v1/auth/me`
+- `GET /api/v1/auth/me` (reports `id`, `email`, `created_at` and `is_admin`)
 - `GET /api/v1/auth/oauth/{provider}/start|callback`, `POST /api/v1/auth/oauth/exchange`
 - `POST /api/v1/auth/passkey/register/options|verify`, `POST /api/v1/auth/passkey/login/options|verify`
 - `GET/DELETE /api/v1/auth/passkey/credentials`
@@ -34,6 +34,19 @@ Base URL: `http://localhost:8000` (relative in production).
 
 ## DexBuilder proxy
 - `GET /api/v4/dexbuilder/*` (markets, events, tags, tokens, positions, usertrades, orders, time)
+
+## Live DexBuilder
+- `GET /api/v4/prediction/live/status`, `/live/auth`, `/live/markets`, `/live/markets/{id}`,
+  `/live/events`, `/live/tags`, `/live/time`, `/live/tokens/{id}/order_book`,
+  `/live/tokens/{id}/price_history`, `/live/tokens/{id}/candlesticks`, `/live/markets/{id}/trades`
+
+## Admin (admin accounts only)
+- `POST /api/v4/prediction/admin/events`, `POST /admin/markets`, `POST /admin/markets/{id}/close`
+- `GET /api/v4/prediction/admin/desks` (review queue, `status` defaults to `PENDING_REVIEW`)
+- `POST /api/v4/prediction/admin/desks/{id}/approve|reject|suspend`
+- `GET /api/v4/prediction/admin/copy-jobs` (copy history across accounts)
+
+Every admin route answers HTTP 403 `ADMIN_REQUIRED` for a regular account.
 
 ## WebSockets
 - `GET /api/v4/prediction/ws/public`, `/ws/private`

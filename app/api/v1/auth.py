@@ -30,7 +30,14 @@ class TokenResponse(BaseModel):
 
 
 def _user_payload(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "created_at": str(user.created_at)}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "created_at": str(user.created_at),
+        # Advisory for the client (the console only renders for admins);
+        # the server remains the authority on every admin route.
+        "is_admin": bool(getattr(user, "is_admin", False)),
+    }
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)

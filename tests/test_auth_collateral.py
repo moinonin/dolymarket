@@ -2,7 +2,7 @@
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, make_admin
 
 pytestmark = pytest.mark.asyncio
 
@@ -96,6 +96,7 @@ async def test_collateral_locking(api: AsyncClient):
 async def test_multi_user_isolation(api: AsyncClient):
     # marketplace: admin creates event + market
     admin = await auth_headers(api, "admin-iso@example.com")
+    await make_admin("admin-iso@example.com")
     await api.post(
         "/api/v4/prediction/admin/events",
         json={

@@ -57,6 +57,19 @@ async def auth_headers(client: AsyncClient, email: str, password: str = "hunter2
     return {"Authorization": f"Bearer {data['access_token']}"}
 
 
+async def make_admin(email: str) -> None:
+    """Promote an existing account to admin (admin routes are admin-only)."""
+    from sqlalchemy import select
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.domain import User
+
+    async with AsyncSessionLocal() as s:
+        user = (await s.execute(select(User).where(User.email == email))).scalar_one()
+        user.is_admin = True
+        await s.commit()
+
+
 async def async_session() -> AsyncIterator:
     async with AsyncSessionLocal() as s:
         yield s

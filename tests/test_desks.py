@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from httpx import AsyncClient
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, make_admin
 from app.models.domain import Desk, DeskPosition, Market, OutcomeToken, Order, User
 from app.services.copy_engine import size_copy
 from app.services.desk_track_record import compute_track_record
@@ -111,6 +111,7 @@ async def test_order_tagging_forbidden_for_non_owner(client: AsyncClient):
     h = await auth_headers(client, "trader2@example.com")
     # need a market
     admin_h = await auth_headers(client, "marketadmin@example.com")
+    await make_admin("marketadmin@example.com")
     ev = await client.post("/api/v4/prediction/admin/events", json={"slug": "e1", "title": "E1"}, headers=admin_h)
     assert ev.status_code in (200, 201, 400)
     r = await client.post(
