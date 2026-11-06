@@ -9,10 +9,12 @@ import {
   LineChart,
   LogIn,
   LogOut,
+  Menu,
   ShieldCheck,
   Tag,
   TrendingUp,
   UserPlus,
+  X,
 } from 'lucide-react'
 import { ToastProvider } from './context/toast'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
@@ -177,28 +179,36 @@ function Nav({
   onAuth: (mode: 'login' | 'register') => void
   onLogout: () => void
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false)
   const items = user
     ? user.is_admin
       ? [...NAV_ITEMS, { key: 'admin', label: 'Admin', icon: ShieldCheck }]
       : NAV_ITEMS
     : ANON_NAV_ITEMS
   const activeSection = user && section === 'home' ? 'markets' : section
+
+  function go(key: string) {
+    onNavigate(key)
+    setMobileOpen(false)
+  }
+
   return (
     <nav className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-6">
+      <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
         <button
-          onClick={() => onNavigate(user ? 'markets' : 'home')}
+          onClick={() => go(user ? 'markets' : 'home')}
           className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
         >
           <BarChart3 className="h-5 w-5 text-emerald-400" />
           DolyMarket
         </button>
 
-        <div className="mx-2 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        {/* Desktop nav */}
+        <div className="mx-2 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden md:flex">
           {items.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => onNavigate(key)}
+              onClick={() => go(key)}
               className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 activeSection === key
                   ? 'bg-slate-800 text-white'
@@ -219,7 +229,7 @@ function Nav({
             title="Documentation"
             className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
           >
-            <BookOpen className="h-3 w-3" /> Docs
+            <BookOpen className="h-3 w-3" /> <span className="hidden sm:inline">Docs</span>
           </a>
           {user ? (
             <>
@@ -231,7 +241,7 @@ function Nav({
                 onClick={onLogout}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300"
               >
-                <LogOut className="h-3 w-3" /> Sign out
+                <LogOut className="h-3 w-3" /> <span className="hidden sm:inline">Sign out</span>
               </button>
             </>
           ) : (
@@ -240,18 +250,56 @@ function Nav({
                 onClick={() => onAuth('login')}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300"
               >
-                <LogIn className="h-3 w-3" /> Sign in
+                <LogIn className="h-3 w-3" /> <span className="hidden sm:inline">Sign in</span>
               </button>
               <button
                 onClick={() => onAuth('register')}
                 className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 transition hover:bg-emerald-400"
               >
-                <UserPlus className="h-3 w-3" /> Register
+                <UserPlus className="h-3 w-3" /> <span className="hidden sm:inline">Register</span>
               </button>
             </>
           )}
+
+          {/* Hamburger (mobile) */}
+          <button
+            onClick={() => setMobileOpen((v) => !v)}
+            className="flex items-center justify-center rounded-lg border border-slate-800 p-2 text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300 md:hidden"
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileOpen}
+          >
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile dropdown */}
+      {mobileOpen && (
+        <div className="border-t border-slate-800/80 bg-slate-950/95 px-4 py-3 md:hidden">
+          <div className="grid grid-cols-2 gap-1.5">
+            {items.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => go(key)}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${
+                  activeSection === key
+                    ? 'bg-slate-800 text-white'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+          {user && (
+            <div className="mt-3 flex items-center gap-2 border-t border-slate-800/60 pt-3 text-[11px] text-slate-400">
+              <ShieldCheck className="h-3 w-3 text-emerald-400" />
+              {user.email || 'trader'}
+            </div>
+          )}
+        </div>
+      )}
     </nav>
   )
 }
