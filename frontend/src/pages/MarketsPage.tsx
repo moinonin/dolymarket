@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
   Activity,
-  BookOpen,
   CircleDollarSign,
   Gavel,
   Loader2,
@@ -108,15 +107,14 @@ export default function MarketsPage({
               extremes, transparent dynamic pricing, and 1:1 USDC settlement on resolution.
             </p>
           </div>
-          <div className="flex items-center gap-6">
-            <Stat icon={<TrendingUp className="h-4 w-4 text-emerald-400" />} label="Open Markets" value={`${events.filter((e) => e.status === 'ACTIVE').length}`} />
-            <Stat icon={<BookOpen className="h-4 w-4 text-blue-400" />} label="Listed Events" value={`${events.length}`} />
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+            <Stat icon={<TrendingUp className="h-3.5 w-3.5 text-emerald-400" />} label="Open" value={`${events.filter((e) => e.status === 'ACTIVE').length}`} />
             {onOpenLive && (
               <button
                 onClick={onOpenLive}
-                className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500/60 hover:bg-emerald-500/15"
+                className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500/60 hover:bg-emerald-500/15"
               >
-                <Activity className="h-4 w-4" /> Live DexBuilder feed →
+                <Activity className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Live DexBuilder feed</span><span className="sm:hidden">Live</span> <span>→</span>
               </button>
             )}
           </div>
@@ -163,7 +161,7 @@ export default function MarketsPage({
               </button>
             ))}
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {CATEGORIES.map((c) => (
               <button
                 key={c}
@@ -218,12 +216,12 @@ export default function MarketsPage({
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
+    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 sm:px-4 sm:py-3">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 sm:text-[11px]">
         {icon}
         {label}
       </div>
-      <div className="mt-1 font-mono text-xl font-semibold text-white">{value}</div>
+      <div className="mt-0.5 font-mono text-lg font-semibold text-white sm:mt-1 sm:text-xl">{value}</div>
     </div>
   )
 }

@@ -561,7 +561,7 @@ function CopyActivityPanel() {
         <>
           <CopyJobSummary jobs={jobs} />
           <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[720px] text-left text-xs">
+            <table className="w-full text-left text-xs">
               <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Desk</th>

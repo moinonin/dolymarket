@@ -290,7 +290,7 @@ export default function LiveMarketDetailPage({
               <p className="mt-1 text-[11px] text-slate-600">Upstream has no trades for this market.</p>
             </div>
           ) : (
-            <div className="max-h-96 space-y-1 overflow-y-auto pr-1">
+            <div className="max-h-96 space-y-1 overflow-y-auto overflow-x-auto pr-1">
               {trades.map((t) => (
                 <div
                   key={`${t.id}-${t.timestamp}`}

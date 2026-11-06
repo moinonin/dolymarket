@@ -315,7 +315,7 @@ function PositionsTable({
   }
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-800">
-      <table className="w-full min-w-4xl text-left text-xs">
+      <table className="w-full text-left text-xs">
         <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wide text-slate-500">
           <tr>
             <Th>Market</Th>
