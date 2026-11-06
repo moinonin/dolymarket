@@ -27,6 +27,10 @@ routers:
   module: app.api.v4.public
   vars:
   - router
+- file: app/api/v4/ws_live.py
+  module: app.api.v4.ws_live
+  vars:
+  - router
 - file: app/api/v4/orders.py
   module: app.api.v4.orders
   vars:
@@ -45,6 +49,18 @@ routers:
   - router
 - file: app/api/v4/resolution.py
   module: app.api.v4.resolution
+  vars:
+  - router
+- file: app/api/v4/prediction/extended.py
+  module: app.api.v4.prediction.extended
+  vars:
+  - router
+- file: app/api/v4/prediction/live.py
+  module: app.api.v4.prediction.live
+  vars:
+  - router
+- file: app/api/v4/dexbuilder/proxy.py
+  module: app.api.v4.dexbuilder.proxy
   vars:
   - router
 mounted_routers:
@@ -89,6 +105,22 @@ mounted_routers:
   tags: []
   file: app/main.py
 - router: ws_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: ws_live_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: prediction_extended_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: prediction_live_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: dexbuilder_proxy_router.router
   prefix: ''
   tags: []
   file: app/main.py
@@ -138,5 +170,6 @@ test_command: pytest tests/
 source_dirs:
 - app
 - predmarket
-_fingerprint: 5c11c6fd7e294119
-_scanned_at: 1793878626.596421
+- site
+_fingerprint: 0ea5cf99e7ee9deb
+_scanned_at: 1793938535.939153

@@ -95,8 +95,8 @@ export default function HomePage({
             Trade the probability, not the narrative
           </span>
           <h1 className="mx-auto mt-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-            Prediction markets with a{' '}
-            <span className="text-emerald-400">real matching engine</span>
+            Prediction Markets With A{' '}
+            <span className="text-emerald-400">Real Matching Engine</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
             Dolymarket runs an in-memory central limit order book with price-time

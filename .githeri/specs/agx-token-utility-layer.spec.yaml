@@ -1,0 +1,117 @@
+task_id: agx-token-utility-layer
+status: planned
+archetype: brownfield_token_utility
+summary: "Algoxen (AGX) token utility layer for Dolymarket: staking with lock/cooldown periods, tiered fee discounts, oracle dispute staking with slashing, Pro Desk and market creation gating, epoch-based reward distribution, and on-chain balance sync. All amounts use Decimal precision (18 decimals)."
+entrypoint: app/main.py
+scope: "Brownfield change to the existing FastAPI + React Dolymarket repository. Add AGX database models (stakes, cooldowns, dispute stakes, creation locks, reward epochs), add AGX service layer with staking/unstaking/withdrawal/reward/dispute/gating logic, add API routes under /api/v1/agx/*, integrate fee discounts into the order execution path, integrate dispute staking into the resolution flow, integrate desk/market creation gating into admin and desk routes, add AGX balance display to the frontend, and cover all flows with hermetic tests. Do not scaffold a new project and do not regenerate existing files."
+out_of_scope:
+  - "On-chain ERC-20 contract deployment or smart contract code (the contract address is configured via AGX_TOKEN_ADDRESS)"
+  - "Wallet connection (MetaMask/WalletConnect) — balance sync uses a manual or indexer-driven endpoint"
+  - "Token transfer UI or DEX integration for acquiring AGX"
+  - "Governance voting or DAO mechanics"
+  - "Multi-chain support beyond the configured AGX_CHAIN_ID"
+assumptions:
+  - "AGX is an ERC-20 token with 18 decimals on the configured chain (AGX_CHAIN_ID)"
+  - "The local database tracks AGX balances for fast reads; on-chain sync is triggered manually or by an indexer"
+  - "Staking, unstaking, and reward claiming are off-chain ledger operations backed by on-chain deposits"
+  - "The existing CollateralAccount and fee system remains unchanged; AGX fee discounts are applied as a multiplier at execution time"
+  - "Decimal precision (18 decimals) is used for all AGX amounts, matching the ERC-20 standard"
+  - "The existing optimistic oracle (propose/dispute/resolve) is extended with AGX dispute staking"
+business_rules:
+  - name: "Staking Minimum and Precision"
+    formula: "Minimum stake is 1 AGX. All balance, stake, and reward values use Decimal with 18 decimal places. No floating point in any AGX calculation."
+  - name: "Unstaking Lock and Cooldown"
+    formula: "Staked AGX has a minimum lock period of 7 days (AGX_MIN_STAKE_LOCK_DAYS). Unstaking initiates a cooldown of 3 days (AGX_UNSTAKE_COOLDOWN_DAYS). Funds can only be withdrawn after both the lock period and cooldown have elapsed."
+  - name: "Fee Discount Tiers"
+    formula: "Staked AGX grants tiered taker-fee discounts: Tier 1 (100-999 AGX) = 5%, Tier 2 (1000-4999 AGX) = 10%, Tier 3 (5000+ AGX) = 15%. Discount = fee * (1 - tier_rate). Applied at order execution. Zero staked = no discount."
+  - name: "Dispute Staking"
+    formula: "Disputing a market resolution requires staking minimum 100 AGX (AGX_DISPUTE_MIN_STAKE). Maximum 1 active dispute stake per user per market. If upheld: disputer receives stake back + reward from loser's stake. If rejected: disputer's stake is slashed to protocol treasury. Dispute stakes are locked until resolution."
+  - name: "Desk Creation Gating"
+    formula: "Creating a Pro Desk requires locking 500 AGX (AGX_DESK_MIN_STAKE). The AGX is locked for the desk's active lifetime. On archive or rejection, locked AGX is returned (minus slashing for violations)."
+  - name: "Market Creation Gating"
+    formula: "Creating a market (admin) requires locking 1000 AGX (AGX_MARKET_MIN_STAKE). The AGX is returned when the market resolves or is closed."
+  - name: "Epoch Reward Distribution"
+    formula: "Rewards distributed per epoch (24h, AGX_REWARD_EPOCH_HOURS). user_reward = total_fees_collected * (user_staked_balance / total_staked_supply). Idempotent: cannot distribute the same epoch twice. Unclaimed rewards accumulate."
+  - name: "Balance Sync"
+    formula: "Local AGX balance is synced from on-chain via POST /api/v1/agx/sync-balance. Deposits and withdrawals are recorded in the AGX ledger. Local balance may not exceed on-chain balance."
+  - name: "Slashing Destination"
+    formula: "Slashed AGX (from rejected disputes or desk violations) goes to the protocol treasury, not redistributed to stakers."
+  - name: "Precision"
+    formula: "All AGX amounts stored as Numeric(36,18) in the database. All calculations use Decimal. Float is only used at the JSON serialization boundary."
+endpoints:
+  - method: POST
+    path: /api/v1/agx/stake
+  - method: POST
+    path: /api/v1/agx/unstake
+  - method: POST
+    path: /api/v1/agx/withdraw
+  - method: GET
+    path: /api/v1/agx/balance
+  - method: GET
+    path: /api/v1/agx/stakes
+  - method: POST
+    path: /api/v1/agx/claim-rewards
+  - method: GET
+    path: /api/v1/agx/rewards/history
+  - method: GET
+    path: /api/v1/agx/tiers
+  - method: POST
+    path: /api/v1/agx/dispute-stake
+  - method: GET
+    path: /api/v1/agx/dispute-stakes
+  - method: POST
+    path: /api/v1/agx/sync-balance
+  - method: GET
+    path: /api/v1/agx/stats
+  - method: POST
+    path: /api/v1/agx/epochs/distribute
+  - method: GET
+    path: /api/v1/agx/epochs
+acceptance_criteria:
+  - test: "Stake and unstake lifecycle"
+    steps: "Stake 100 AGX, verify balance decreases and staked balance increases. Attempt unstake before 7-day lock expires -> 422. After lock, unstake -> cooldown starts. Attempt withdraw during cooldown -> 422. After cooldown, withdraw -> balance restored."
+  - test: "Fee discount by tier"
+    steps: "With 0 staked, fee discount is 0%. With 500 staked, discount is 5%. With 2000 staked, discount is 10%. With 6000 staked, discount is 15%. Verify Decimal precision in all calculations."
+  - test: "Dispute stake lifecycle"
+    steps: "Stake 100 AGX to dispute a market. Verify stake is locked. Resolve dispute as upheld -> stake returned + reward. Resolve as rejected -> stake slashed. Attempt second dispute on same market -> 409. Attempt dispute with < 100 AGX -> 422."
+  - test: "Desk creation gating"
+    steps: "Attempt desk creation with < 500 AGX staked -> 422. With 500+ AGX staked, desk created and AGX locked. Archive desk -> AGX returned."
+  - test: "Market creation gating"
+    steps: "Admin creates market with < 1000 AGX staked -> 422. With 1000+ AGX, market created and AGX locked. Market resolves -> AGX returned."
+  - test: "Reward distribution"
+    steps: "Distribute epoch rewards, verify proportional payout. Attempt duplicate distribution -> 409. Claim rewards, verify balance updated. Verify unclaimed rewards accumulate."
+  - test: "Balance sync"
+    steps: "Sync on-chain balance, verify local balance matches. Attempt to stake more than local balance -> 422."
+  - test: "Edge cases"
+    steps: "Stake 0 AGX -> 422. Unstake more than staked -> 422. Withdraw before cooldown -> 422. Double epoch distribution -> 409. Stake during cooldown -> 422."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "sqlalchemy", "pydantic", "pytest", "pytest-asyncio", "httpx", "web3"]
+  env_vars:
+    AGX_TOKEN_ADDRESS: "0x1111111111111111111111111111111111111111"
+    AGX_CHAIN_ID: "42161"
+    AGX_RPC_URL: "https://arb1.arbitrum.io/rpc"
+    AGX_MIN_STAKE: "1"
+    AGX_UNSTAKE_COOLDOWN_DAYS: "3"
+    AGX_MIN_STAKE_LOCK_DAYS: "7"
+    AGX_DISPUTE_MIN_STAKE: "100"
+    AGX_DESK_MIN_STAKE: "500"
+    AGX_MARKET_MIN_STAKE: "1000"
+    AGX_REWARD_EPOCH_HOURS: "24"
+    AGX_FEE_DISCOUNT_TIER_1: "100"
+    AGX_FEE_DISCOUNT_TIER_2: "1000"
+    AGX_FEE_DISCOUNT_TIER_3: "5000"
+    AGX_FEE_DISCOUNT_RATE_1: "0.05"
+    AGX_FEE_DISCOUNT_RATE_2: "0.10"
+    AGX_FEE_DISCOUNT_RATE_3: "0.15"
+  services: []
+global_verification:
+  - "pytest tests/test_agx_staking.py"
+  - "pytest tests/test_agx_disputes.py"
+  - "pytest tests/test_agx_rewards.py"
+  - "pytest tests/test_agx_gating.py"
+  - "pytest tests/test_agx_api.py"
+context:
+  language: Python
+  framework: FastAPI
+  test_framework: pytest
