@@ -7,6 +7,9 @@ from pathlib import Path
 # Hermetic test environment before app import.
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-1234567890abcdef")
+os.environ.setdefault("WEBAUTHN_RP_ID", "localhost")
+os.environ.setdefault("WEBAUTHN_ORIGIN", "http://test")
+os.environ.setdefault("WEBAUTHN_ORIGINS", "http://test")
 
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))

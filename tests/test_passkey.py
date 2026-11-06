@@ -14,6 +14,7 @@ ORIGIN = "http://test"
 async def test_passkey_registration_then_login(client: AsyncClient, monkeypatch):
     monkeypatch.setenv("WEBAUTHN_RP_ID", RP_ID)
     monkeypatch.setenv("WEBAUTHN_ORIGIN", ORIGIN)
+    monkeypatch.setenv("WEBAUTHN_ORIGINS", ORIGIN)
 
     headers = await auth_headers(client, "passkey-trader@example.com")
     authenticator = SoftwareAuthenticator(RP_ID, ORIGIN)
@@ -69,6 +70,7 @@ async def test_passkey_login_rejects_tampered_signature(
 ):
     monkeypatch.setenv("WEBAUTHN_RP_ID", RP_ID)
     monkeypatch.setenv("WEBAUTHN_ORIGIN", ORIGIN)
+    monkeypatch.setenv("WEBAUTHN_ORIGINS", ORIGIN)
 
     headers = await auth_headers(client, "passkey-tamper@example.com")
     authenticator = SoftwareAuthenticator(RP_ID, ORIGIN)
