@@ -31,7 +31,6 @@ export default function HomePage({
   onBrowseMarkets: () => void
 }) {
   const [events, setEvents] = useState<Event[]>([])
-  const [totalEvents, setTotalEvents] = useState(0)
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +44,6 @@ export default function HomePage({
         const res = await api.listEvents({ sort_by: 'liquidity', limit: 100 })
         if (cancelled) return
         setEvents(res.events)
-        setTotalEvents(res.total_count)
 
         const preview = res.events.slice(0, 6)
         const rows: Record<string, TickerRow> = {}
@@ -82,6 +80,7 @@ export default function HomePage({
 
   const preview = events.slice(0, 6)
   const openMarkets = events.filter((e) => e.status === 'ACTIVE').length
+  const resolvedMarkets = events.filter((e) => e.status === 'RESOLVED').length
   const trackedVolume = events.reduce((acc, e) => acc + (e.total_volume || 0), 0)
 
   return (
@@ -137,8 +136,8 @@ export default function HomePage({
               value={loading ? null : `${openMarkets}`}
             />
             <HeroStat
-              label="Listed events"
-              value={loading ? null : `${totalEvents}`}
+              label="Markets resolved"
+              value={loading ? null : `${resolvedMarkets}`}
             />
             <HeroStat
               label="Tracked volume"
