@@ -16,13 +16,13 @@
   color: #00d492;
 }
 
-/* Navbar items in pure cloud white so they stand out. */
+/* Navbar items in pure white so they stand out against the dim header. */
 .md-header__title,
 .md-header__topic,
 .md-tabs__link,
 .md-nav__link,
 .md-header__button {
-  color: #ececf1 !important;
+  color: #ffffff !important;
 }
 
 .md-header {
