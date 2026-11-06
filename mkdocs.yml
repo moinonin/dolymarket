@@ -46,6 +46,7 @@ nav:
     - Collateral: portfolio/collateral.md
   - Resolution: resolution.md
   - Pro Desks: pro-desks.md
+  - Operations console: admin-console.md
   - Authentication: auth.md
   - Do's and don'ts: do-dont.md
   - Disclaimers: disclaimers.md
