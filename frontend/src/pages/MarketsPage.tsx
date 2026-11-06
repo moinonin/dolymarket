@@ -103,8 +103,8 @@ export default function MarketsPage({
               Prediction markets for <span className="text-emerald-400">everything</span>
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Trade CLOB-driven probability on real-world outcomes. Robinhood-low fees at the
-              extremes, transparent dynamic pricing, and 1:1 USDC settlement on resolution.
+              Trade real-world outcomes on real order books. Fees shrink as prices
+              approach certainty, and winning shares always settle 1:1 in USDC.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
@@ -114,7 +114,7 @@ export default function MarketsPage({
                 onClick={onOpenLive}
                 className="flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs font-semibold text-emerald-300 transition hover:border-emerald-500/60 hover:bg-emerald-500/15"
               >
-                <Activity className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Live DexBuilder feed</span><span className="sm:hidden">Live</span> <span>→</span>
+                <Activity className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Live feed</span><span className="sm:hidden">Live</span> <span>→</span>
               </button>
             )}
           </div>

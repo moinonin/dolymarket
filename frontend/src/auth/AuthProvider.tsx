@@ -209,7 +209,7 @@ export function AuthModal({ mode, providers, onClose, onAuthed }: AuthModalProps
         </h2>
         <p className="mt-1 text-sm text-slate-400">
           {mode === 'register'
-            ? 'Register to trade, deposit collateral and receive fill notifications.'
+            ? 'Register to trade, deposit funds and receive fill notifications.'
             : 'Welcome back. Enter your credentials to access your portfolio.'}
         </p>
         <div className="mt-5 space-y-3">

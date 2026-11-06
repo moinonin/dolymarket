@@ -90,7 +90,7 @@ export default function LiveMarketDetailPage({
       onState: setSocketState,
       onMessage: (msg) => {
         if (msg?.action === 'error') {
-          setStreamError(msg.detail || 'The upstream stream is unavailable.')
+          setStreamError(msg.detail || 'The live stream is unavailable.')
           return
         }
         if (msg?.channel === 'pred.depth' && msg.token_id === tokenId) {
@@ -138,7 +138,7 @@ export default function LiveMarketDetailPage({
         <div className="flex items-start gap-3 rounded-xl border border-rose-800/60 bg-rose-950/40 p-4 text-sm text-rose-200">
           <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <p className="font-medium">Live upstream unavailable</p>
+            <p className="font-medium">Live feed unavailable</p>
             <p className="mt-0.5 text-xs text-rose-300/80">{error}</p>
           </div>
         </div>
@@ -170,8 +170,8 @@ export default function LiveMarketDetailPage({
               streamError
                 ? streamError
                 : socketState === 'open'
-                  ? 'Streaming from the DexBuilder broker'
-                  : 'Waiting for the upstream stream'
+                  ? 'Streaming from the live feed'
+                  : 'Connecting to the live feed'
             }
           >
             <span
@@ -198,8 +198,9 @@ export default function LiveMarketDetailPage({
       <div className="mb-5 flex items-start gap-2 rounded-xl border border-amber-700/40 bg-amber-950/30 px-3.5 py-2.5 text-xs text-amber-200/90">
         <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
-          Live DexBuilder market — prices, book and tape are upstream data. Placing orders on upstream
-          markets requires a connected DexBuilder account.
+          This is a live market — prices, the order book and trades come from an
+          external venue. Placing orders on these markets requires a connected
+          account there.
         </span>
       </div>
 
@@ -207,7 +208,7 @@ export default function LiveMarketDetailPage({
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-700/40 bg-amber-950/25 px-3.5 py-2.5 text-xs text-amber-200/90">
           <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            The upstream websocket is unavailable ({streamError}). The page keeps refreshing over
+            The live stream dropped ({streamError}). The page keeps refreshing over
             REST every {REFRESH_MS / 1000} seconds.
           </span>
         </div>
@@ -219,7 +220,7 @@ export default function LiveMarketDetailPage({
           <span>
             {market.winning_outcome_index != null && market.outcomes?.[market.winning_outcome_index]
               ? `Resolved — ${market.outcomes[market.winning_outcome_index]} won (settled at 1.00 / 0.00).`
-              : 'Closed — the upstream does not report a settled outcome for this market.'}
+              : 'Closed — no settled outcome was reported for this market.'}
           </span>
         </div>
       )}
@@ -278,16 +279,16 @@ export default function LiveMarketDetailPage({
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-            <History className="h-4 w-4 text-blue-400" /> Trade tape
+            <History className="h-4 w-4 text-blue-400" /> Recent trades
           </h2>
           {trades == null ? (
             <div className="flex items-center justify-center gap-2 py-8 text-xs text-slate-500">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading prints…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading trades…
             </div>
           ) : trades.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-800 py-10 text-center">
-              <p className="text-xs font-medium text-slate-400">No prints yet</p>
-              <p className="mt-1 text-[11px] text-slate-600">Upstream has no trades for this market.</p>
+              <p className="text-xs font-medium text-slate-400">No trades yet</p>
+              <p className="mt-1 text-[11px] text-slate-600">The live feed has no trades for this market yet.</p>
             </div>
           ) : (
             <div className="max-h-96 space-y-1 overflow-y-auto overflow-x-auto pr-1">

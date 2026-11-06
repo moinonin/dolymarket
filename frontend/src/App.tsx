@@ -135,8 +135,8 @@ function Shell() {
       />
       {page}
       <footer className="border-t border-slate-900 py-6 text-center text-[11px] text-slate-600">
-        Dolymarket · in-memory CLOB · CTF settlement · UMA-style optimistic
-        oracle — simulation environment, not financial advice.
+        Dolymarket — a demo trading environment. Funds are simulated; nothing here is
+        financial advice.
       </footer>
     </div>
   )
@@ -200,7 +200,7 @@ function Nav({
           className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
         >
           <BarChart3 className="h-5 w-5 text-emerald-400" />
-          DolyMarket
+          Dolymarket
         </button>
 
         {/* Desktop nav */}

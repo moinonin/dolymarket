@@ -60,12 +60,12 @@ export default function RecentTrades({
         <History className="h-4 w-4 text-blue-400" /> Recent Prints
       </h2>
       {trades == null ? (
-        <p className="py-6 text-center text-xs text-slate-500">Loading prints…</p>
+        <p className="py-6 text-center text-xs text-slate-500">Loading trades…</p>
       ) : trades.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-800 py-10 text-center">
           <p className="text-xs font-medium text-slate-400">No trades yet</p>
           <p className="mt-1 text-[11px] text-slate-600">
-            Matched fills stream here the moment print hits the tape.
+            Executed trades appear here the moment they hit the book.
           </p>
         </div>
       ) : (

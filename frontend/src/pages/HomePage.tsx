@@ -99,10 +99,9 @@ export default function HomePage({
             <span className="text-emerald-400">Real Matching Engine</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Dolymarket runs an in-memory central limit order book with price-time
-            priority, batched write-behind settlement and real-time streaming.
-            Back a view, watch the probability move, and redeem winning shares
-            1:1.
+            Back a view with real orders on a real order book. Prices move as the
+            crowd trades, fees shrink as the outcome becomes certain, and winning
+            shares redeem 1:1 in USDC.
           </p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <button
@@ -276,7 +275,7 @@ export default function HomePage({
             <MiniStat icon={<TrendingUp className="h-4 w-4 text-emerald-400" />} label="Fee model" value="C × r × p × (1−p)" />
             <MiniStat icon={<Coins className="h-4 w-4 text-emerald-400" />} label="Settlement" value="$1.00 / share" />
             <MiniStat icon={<Keyboard className="h-4 w-4 text-emerald-400" />} label="Hotkeys" value="B · S · ⏎ · Esc" />
-            <MiniStat icon={<Percent className="h-4 w-4 text-emerald-400" />} label="Settlement" value="CTF style" />
+            <MiniStat icon={<Percent className="h-4 w-4 text-emerald-400" />} label="Outcomes" value="Split & merge" />
           </div>
         </div>
       </section>
@@ -312,40 +311,40 @@ export default function HomePage({
 const FEATURES = [
   {
     icon: Zap,
-    title: 'In-memory CLOB',
-    body: 'Price-time priority matching in RAM with batched write-behind fills — no full-table scans on the hot path.',
+    title: 'Instant matching',
+    body: 'Limit and market orders match in milliseconds at price-time priority — exchange mechanics, not an AMM pool.',
   },
   {
     icon: Percent,
-    title: 'Dynamic fees',
-    body: 'Fee = C × feeRate × p × (1 − p): cheap near certainty, expensive right at the coin flip.',
+    title: 'Fees that fade near certainty',
+    body: 'You pay the most at a coin flip and almost nothing at 99¢ — the fee follows your risk, not your size.',
   },
   {
     icon: Coins,
-    title: '1:1 settlement',
-    body: 'Conditional tokens settle at exactly $1.00 per winning share, split, merged and redeemed on demand.',
+    title: 'Clean settlement',
+    body: 'Winning shares redeem for exactly $1.00 in USDC. Split or merge outcome sets whenever you want.',
   },
   {
     icon: Radio,
-    title: 'Live streaming',
-    body: 'WebSocket depth, trades and positions with monotonic sequence ids and automatic gap resync.',
+    title: 'Live to the tick',
+    body: 'Order book depth, trades and your fills stream in real time — no refreshing the page.',
   },
   {
     icon: BarChart3,
-    title: 'Trading terminal',
-    body: 'Lightweight Charts candles with volume, depth ladders, hotkeys and optimistic order placement.',
+    title: 'Built for fast trading',
+    body: 'Candlestick charts, depth ladders, keyboard shortcuts and one-tap order placement.',
   },
   {
     icon: ShieldCheck,
-    title: 'Hardened access',
-    body: 'Passkeys, federated OAuth, HMAC-signed API keys, idempotency keys and token-bucket rate limits.',
+    title: 'Sign in without passwords',
+    body: 'Passkeys or Google, Microsoft and Apple sign-in. API keys for bots, rate limits for everyone’s safety.',
   },
 ]
 
 const STEPS = [
   {
-    title: 'Fund the account',
-    body: 'Deposit USDC from the cash ledger. Funds are locked per open order and released on cancel or fill.',
+    title: 'Fund your wallet',
+    body: 'Deposit USDC in a couple of clicks. Funds are reserved per open order and released on cancel or fill.',
   },
   {
     title: 'Trade the book',
@@ -353,7 +352,7 @@ const STEPS = [
   },
   {
     title: 'Resolve and redeem',
-    body: 'When the market resolves, winning tokens redeem 1:1 and the payout lands in your ledger.',
+    body: 'When the market resolves, winning tokens redeem 1:1 and the payout lands in your wallet.',
   },
 ]
 

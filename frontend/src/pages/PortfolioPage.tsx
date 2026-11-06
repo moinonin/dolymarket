@@ -31,11 +31,11 @@ import CashLedgerModal from '../components/CashLedgerModal'
 type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger' | 'security'
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'positions', label: 'Active Positions' },
-  { key: 'settled', label: 'Settled & Redemption' },
+  { key: 'positions', label: 'Positions' },
+  { key: 'settled', label: 'Settled & payouts' },
   { key: 'orders', label: 'Open Orders' },
-  { key: 'trades', label: 'Execution History' },
-  { key: 'ledger', label: 'Cash Ledger' },
+  { key: 'trades', label: 'Trade history' },
+  { key: 'ledger', label: 'Wallet' },
   { key: 'security', label: 'Security' },
 ]
 
@@ -136,7 +136,7 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
         />
         <SummaryCard
           icon={<Lock className="h-4 w-4 text-amber-400" />}
-          label="Locked in Orders"
+          label="In open orders"
           value={loading ? null : `$${(balance?.locked_balance ?? 0).toFixed(2)}`}
         />
         <SummaryCard
@@ -618,7 +618,7 @@ function LedgerTable({ entries, loading }: { entries: LedgerEntry[] | null; load
   if (!entries || entries.length === 0)
     return (
       <div className="rounded-2xl border border-dashed border-slate-800 py-16 text-center">
-        <p className="text-sm font-medium text-slate-300">Ledger empty</p>
+        <p className="text-sm font-medium text-slate-300">Wallet empty</p>
         <p className="mt-1 text-xs text-slate-500">Deposits, withdrawals, fees, and payouts all flow through here.</p>
       </div>
     )

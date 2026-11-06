@@ -54,7 +54,7 @@ export default function CashLedgerModal({
         <p className="text-xs text-slate-400">
           {mode === 'withdraw'
             ? `Available to withdraw: $${available.toFixed(2)} (unlocked only)`
-            : 'Simulated free collateral top-up in USDC.'}
+            : 'Add demo funds in USDC — this is a simulation, no real money moves.'}
         </p>
         <input
           value={amount}

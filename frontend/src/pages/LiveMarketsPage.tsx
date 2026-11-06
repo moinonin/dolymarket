@@ -49,7 +49,7 @@ export default function LiveMarketsPage({
       setUpdatedAt(Date.now())
       setError(null)
     } catch (err: any) {
-      setError(err?.message || 'Could not reach the live upstream')
+      setError(err?.message || 'Could not reach the live feed')
     } finally {
       setLoading(false)
     }
@@ -85,7 +85,7 @@ export default function LiveMarketsPage({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-60" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
               </span>
-              DexBuilder
+              Live feed
             </span>
             {auth && (
               <span
@@ -108,12 +108,12 @@ export default function LiveMarketsPage({
             )}
           </div>
           <p className="mt-1 text-sm text-slate-400">
-            Real-time market data streamed from api.dexbuilder.com — read-only. Switch tabs for
-            resolved markets and walk back through the upstream history.
+            Real-time market data from our live feed — read-only. Switch tabs for
+            resolved markets and walk back through the feed history.
           </p>
           {auth && auth.configured && !auth.authenticated && (
             <p className="mt-2 text-xs text-amber-300/90">
-              The upstream rejected the configured DexBuilder credential ({auth.upstream?.label}).
+              The live feed rejected the configured API credential ({auth.upstream?.label}).
               Public market data still works; account data (positions, trades, balances) stays
               unavailable until a valid key is configured.
             </p>
@@ -185,7 +185,7 @@ export default function LiveMarketsPage({
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-rose-800/60 bg-rose-950/40 p-4 text-sm text-rose-200">
           <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <p className="font-medium">Live upstream unavailable</p>
+            <p className="font-medium">Live feed unavailable</p>
             <p className="mt-0.5 text-xs text-rose-300/80">{error}</p>
           </div>
         </div>
@@ -210,8 +210,8 @@ export default function LiveMarketsPage({
             {search
               ? 'Nothing matches that search in the live feed. Try a different term.'
               : status === 'active'
-                ? 'The upstream currently returns no active markets.'
-                : 'Use “Older →” to walk further back through the upstream history.'}
+                ? 'The live feed has no active markets right now.'
+                : 'Use “Older →” to walk further back through the feed history.'}
           </p>
         </div>
       ) : (
@@ -297,7 +297,7 @@ function LiveMarketCard({ market, onOpen }: { market: LiveMarket; onOpen: () => 
               won
             </span>
           ) : (
-            <span className="text-slate-500">Closed — upstream reports no settled outcome</span>
+            <span className="text-slate-500">Closed — no settled outcome reported</span>
           )}
         </div>
       )}
