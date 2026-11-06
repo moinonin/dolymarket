@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -88,22 +88,35 @@ export default function HomePage({
     <div className="mx-auto w-full max-w-7xl px-6 pb-24">
       {/* Hero */}
       <section className="relative overflow-hidden pt-16 pb-14">
+        {/* Animated backdrop — drifting gradients + grid (swap for generated image later) */}
+        <div
+          className="hero-drift pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(60% 50% at 20% 10%, rgba(16,185,129,0.10), transparent 60%), radial-gradient(50% 40% at 85% 25%, rgba(59,130,246,0.08), transparent 60%)',
+          }}
+        />
+        <div className="hero-grid pointer-events-none absolute inset-0" />
         <div className="pointer-events-none absolute -top-40 left-1/2 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="relative text-center">
+        {/* Decorative live probability lines */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 w-full opacity-70 [mask-image:linear-gradient(to_bottom,transparent,black_45%)] sm:h-56">
+          <HeroCanvas />
+        </div>
+        <div className="relative">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
             <Sparkles className="h-3 w-3" />
             Trade the probability, not the narrative
           </span>
-          <h1 className="mx-auto mt-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
+          <h1 className="mt-5 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
             Prediction Markets with a{' '}
             <span className="text-emerald-400">Real Matching Engine</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
             Trade real outcomes on real order books. Prices move as the crowd
             trades, fees shrink as the outcome becomes certain, and winning
             shares redeem 1:1 in USDC.
           </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-7 flex flex-wrap items-center gap-3">
             <button
               onClick={() => onOpenAuth('register')}
               className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
@@ -118,7 +131,7 @@ export default function HomePage({
             </button>
           </div>
 
-          <div className="mx-auto mt-10 grid max-w-2xl grid-cols-3 gap-3">
+          <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <HeroStat
               label="Open markets"
               value={loading ? null : `${openMarkets}`}
@@ -358,12 +371,12 @@ const STEPS = [
 
 function HeroStat({ label, value }: { label: string; value: string | null }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-center">
+    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
       <div className="text-[10px] uppercase tracking-wide text-slate-500">
         {label}
       </div>
       <div className="mt-1 font-mono text-lg font-semibold text-white">
-        {value == null ? <Skeleton className="mx-auto h-5 w-16" /> : value}
+        {value == null ? <Skeleton className="h-5 w-16" /> : value}
       </div>
     </div>
   )
@@ -387,6 +400,94 @@ function MiniStat({
       <div className="mt-1 font-mono text-sm font-semibold text-white">{value}</div>
     </div>
   )
+}
+
+function HeroCanvas() {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const POINTS = 160
+    const STEP_MS = 650
+    const clamp = (x: number) => Math.min(0.85, Math.max(0.15, x))
+    const next = (v: number) => clamp(v + (Math.random() - 0.5) * 0.07)
+
+    let yes: number[] = []
+    let v = 0.5
+    for (let i = 0; i <= POINTS; i++) {
+      v = next(v)
+      yes.push(v)
+    }
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    const resize = () => {
+      canvas.width = canvas.clientWidth * dpr
+      canvas.height = canvas.clientHeight * dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    let raf = 0
+    let last = performance.now()
+    let shift = 0
+
+    const trace = (
+      series: number[],
+      step: number,
+      frac: number,
+      stroke: string,
+      glow: string
+    ) => {
+      const h = canvas.clientHeight
+      ctx.beginPath()
+      series.forEach((p, i) => {
+        const x = i * step - frac
+        const y = h - p * h
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      })
+      ctx.strokeStyle = stroke
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.shadowColor = glow
+      ctx.shadowBlur = 14
+      ctx.stroke()
+    }
+
+    const frame = (t: number) => {
+      const dt = Math.min(100, t - last)
+      last = t
+      if (!reduced) {
+        shift += dt / STEP_MS
+        while (shift >= 1) {
+          shift -= 1
+          v = next(v)
+          yes = [...yes.slice(1), v]
+        }
+      }
+      const w = canvas.clientWidth
+      const h = canvas.clientHeight
+      ctx.clearRect(0, 0, w, h)
+      const step = w / POINTS
+      trace(yes.map((p) => 1 - p), step, shift * step, '#f43f5e', 'rgba(244,63,94,0.5)')
+      trace(yes, step, shift * step, '#10b981', 'rgba(16,185,129,0.7)')
+      if (!reduced) raf = requestAnimationFrame(frame)
+    }
+    raf = requestAnimationFrame(frame)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
+
+  return <canvas ref={ref} className="h-full w-full" aria-hidden="true" />
 }
 
 function MarketPreviewCard({
