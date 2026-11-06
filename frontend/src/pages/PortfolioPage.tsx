@@ -157,7 +157,7 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
       </div>
 
       {/* Tabs */}
-      <div className="mt-8 flex gap-1.5 overflow-x-auto border-b border-slate-800 pb-0">
+      <div className="mt-8 flex flex-wrap gap-1.5 border-b border-slate-800 pb-0 sm:flex-nowrap sm:overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
