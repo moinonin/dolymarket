@@ -84,4 +84,4 @@ means the key itself is unknown to DexBuilder (a wrong signature answers
 - [x] Copy-job history view for the trader (Activity) and for admins (console tab).
 - [x] WebSocket bridge: the backend owns the upstream protocol and translates it into the Dolymarket envelope (`/api/v4/prediction/live/ws`), the live market page streams depth/bbo/trades and keeps REST polling as the fallback (`VITE_DEXBUILDER_WS_URL` is gone — the broker url is server-side only).
 - [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the bridge is implemented and tested against a local fake broker; the live broker still answers 503).
-- [ ] Route live markets into the trade ticket once upstream order placement is authenticated (upstream markets stay read-only until then).
+- [ ] Once a working credential is obtained: route upstream live markets into the trade ticket, migrate trading to upstream order placement, and purge the local seeded/demo market universe (the Live tab already shows the real upstream markets; the main Markets tab keeps seeded markets until then to avoid duplicating read-only rows).
