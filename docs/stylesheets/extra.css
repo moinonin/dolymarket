@@ -2,9 +2,9 @@
    with the Dolymarket teal. Use #ececf1 for the light (white) text. */
 :root,
 [data-md-color-primary] {
-  --md-primary-fg-color: #00d492 !important;
-  --md-primary-fg-color--light: #33ddb0 !important;
-  --md-primary-fg-color--dark: #00a870 !important;
+  --md-primary-fg-color: #00a870 !important;
+  --md-primary-fg-color--light: #00d492 !important;
+  --md-primary-fg-color--dark: #007a50 !important;
   --md-accent-fg-color: #00d492 !important;
   --md-accent-fg-color--transparent: #00d4921a !important;
   --md-typeset-a-color: #00d492 !important;
@@ -26,11 +26,11 @@
 }
 
 .md-header {
-  background-color: #00d492;
+  background-color: #00a870;
 }
 
 .md-tabs {
-  background-color: #00d492;
+  background-color: #00a870;
 }
 
 /* ---------------------------------------------------------------------------
