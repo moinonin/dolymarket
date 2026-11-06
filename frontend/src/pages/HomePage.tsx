@@ -99,8 +99,8 @@ export default function HomePage({
             <span className="text-emerald-400">Real Matching Engine</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Back a view with real orders on a real order book. Prices move as the
-            crowd trades, fees shrink as the outcome becomes certain, and winning
+            Trade real outcomes on real order books. Prices move as the crowd
+            trades, fees shrink as the outcome becomes certain, and winning
             shares redeem 1:1 in USDC.
           </p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
@@ -205,8 +205,8 @@ export default function HomePage({
           Built like a trading venue, not a survey
         </h2>
         <p className="mx-auto mt-2 max-w-2xl text-center text-sm text-slate-400">
-          Every layer of the stack is production-shaped: real matching, real
-          settlement, real-time state and hardened access control.
+          Back a view with real orders, watch the price move, and if you're
+          right, your shares settle at exactly $1.00.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
