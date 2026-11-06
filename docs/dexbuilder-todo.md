@@ -70,7 +70,7 @@ means the key itself is unknown to DexBuilder (a wrong signature answers
    `api.dexbuilder.com` is required — a builder-console key or a key from
    another product is not accepted.
 2. Upstream gaps (not our bug): single-token `/price` and `/ticker`, bulk `/tokens/prices` (empty), `/tokens/{id}/market`, `/markets/slug/{slug}`, and `/tokens/{id}/price_history` returning 404 for unindexed tokens.
-3. The websocket broker (`wss://broker.dexbuilder.com/ws/dex-builder/prediction`) answers HTTP 503 for every channel, public ones included, so the streaming path cannot be verified yet.
+3. The websocket broker (`wss://broker.dexbuilder.com/ws/dex-builder/prediction`) answers HTTP 503 for every channel, public ones included, so the streaming path cannot be verified against the live infrastructure yet (the bridge itself is verified against a local fake broker).
 
 ## TODO
 - [x] Obtain live public DexBuilder data without credentials and display it (markets, quotes, books, candles, trades, tags, time).
@@ -82,5 +82,6 @@ means the key itself is unknown to DexBuilder (a wrong signature answers
 - [ ] Obtain a valid DexBuilder prediction-markets API key and verify usertrades/positions/assets/account_book/fee/claims end-to-end (currently blocked by `INVALID_KEY`).
 - [x] Admin console: create events and markets, close markets, review Pro Desks and audit copy jobs (admin-only routes, `is_admin` exposed to the client).
 - [x] Copy-job history view for the trader (Activity) and for admins (console tab).
-- [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the client currently reads `VITE_WS_URL`; `VITE_DEXBUILDER_WS_URL` is unused; the broker answers 503).
+- [x] WebSocket bridge: the backend owns the upstream protocol and translates it into the Dolymarket envelope (`/api/v4/prediction/live/ws`), the live market page streams depth/bbo/trades and keeps REST polling as the fallback (`VITE_DEXBUILDER_WS_URL` is gone — the broker url is server-side only).
+- [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the bridge is implemented and tested against a local fake broker; the live broker still answers 503).
 - [ ] Route live markets into the trade ticket once upstream order placement is authenticated (upstream markets stay read-only until then).

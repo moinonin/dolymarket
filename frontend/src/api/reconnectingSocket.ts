@@ -13,6 +13,9 @@ export interface SocketSubscription {
   action: 'subscribe'
   channel: string
   token_id?: string
+  condition_id?: string
+  market_id?: string
+  level?: number
 }
 
 export interface PredictionSocketOptions {
@@ -193,9 +196,24 @@ export class PredictionSocket {
   }
 }
 
-export function publicSocketUrl(path = '/api/v4/prediction/ws/public'): string {
+function socketUrl(path: string): string {
   const explicit = import.meta.env.VITE_WS_URL
   if (explicit) return `${String(explicit).replace(/\/+$/, '')}${path}`
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${proto}://${window.location.host}${path}`
+}
+
+/** Local CLOB stream (the engine's own order book and trade tape). */
+export function publicSocketUrl(path = '/api/v4/prediction/ws/public'): string {
+  return socketUrl(path)
+}
+
+/**
+ * Upstream DexBuilder stream, bridged by the backend.
+ *
+ * The browser never connects to the upstream broker directly: the server owns
+ * the upstream protocol and translates every frame into the local envelope.
+ */
+export function liveSocketUrl(path = '/api/v4/prediction/live/ws'): string {
+  return socketUrl(path)
 }

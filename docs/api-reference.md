@@ -50,3 +50,4 @@ Every admin route answers HTTP 403 `ADMIN_REQUIRED` for a regular account.
 
 ## WebSockets
 - `GET /api/v4/prediction/ws/public`, `/ws/private`
+- `GET /api/v4/prediction/live/ws` — upstream DexBuilder stream, bridged into the local envelope

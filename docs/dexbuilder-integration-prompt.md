@@ -135,6 +135,15 @@ WebSocket consumption:
   `VITE_DEXBUILDER_WS_URL` is set, with exponential backoff (1s to 30s, jitter
   0-20%) and a snapshot resync after reconnect.
 
+> **Implementation note.** The browser does not connect to the upstream broker
+> directly: the upstream protocol differs from the Dolymarket websocket
+> envelope and the private channels need a signature the browser must not
+> hold. The backend owns the upstream connection and translates every frame
+> (`/api/v4/prediction/live/ws`), the broker url is server-side configuration
+> (`DEXBUILDER_WS_URL`) and the browser only uses `VITE_WS_URL` when the
+> websocket host differs from the API host. See
+> [Live streaming](live-data.md#live-streaming).
+
 ## Frontend requirements
 
 - `frontend/src/pages/TagsPage.tsx` listing tags and the markets for a tag.

@@ -64,6 +64,42 @@ back with **Older →**; resolved cards show the outcome that won.
 `GET /api/v4/prediction/live/status` reports the integration state (upstream URL,
 cache size, circuit breaker).
 
+## Live streaming
+
+The live market page streams its book, best bid/offer and trade tape over a
+websocket instead of polling.
+
+```text
+browser  --ws-->  /api/v4/prediction/live/ws   --ws-->  wss://broker.dexbuilder.com/...
+```
+
+The **browser never talks to the upstream broker**. The upstream speaks its own
+protocol, the server owns it and translates every frame into the Dolymarket
+envelope, so the page keeps using the same client it already uses for the local
+order book.
+
+| Direction | Frame |
+|---|---|
+| browser → server | `{"action": "subscribe", "channel": "pred.depth", "token_id": "…", "level": 20}` |
+| server → upstream | `{"t": 1720000000123, "id": "dm-1", "op": "subscribe", "ch": "pred.depth", "payload": {"items": [{"token_id": "…", "level": 20}]}}` |
+| upstream → server | `{"type": "snapshot", "ch": "pred.depth", "err": null, "result": {"bids": [["0.44", "100"]], …}}` |
+| server → browser | `{"channel": "pred.depth", "token_id": "…", "bids": [["0.44", 100.0]], "asks": […], "stream_sequence": 42}` |
+
+Supported channels: `pred.depth` (token id), `pred.bbo` (token id),
+`pred.trades` (condition id) and `pred.status` (market id). Public upstream
+channels need no credentials.
+
+The upstream broker is configured server-side with `DEXBUILDER_WS_URL`; the
+browser only needs `VITE_WS_URL` when the websocket host differs from the API
+host.
+
+When the broker is unreachable the browser receives
+`{"action": "error", "detail": "DEXBUILDER_UPSTREAM_UNAVAILABLE"}`, the badge
+on the live page turns amber and the REST polling keeps the page up to date.
+The broker currently answers HTTP 503 for every channel, so this path is
+verified against a local fake broker (`tests/test_dexbuilder_stream.py`) rather
+than the live infrastructure.
+
 ## Credentialed upstream reads
 
 Account data (positions, user trades, assets, account book, fees, claims) is

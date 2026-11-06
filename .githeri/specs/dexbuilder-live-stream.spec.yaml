@@ -1,0 +1,54 @@
+task_id: dexbuilder-live-stream
+status: active
+archetype: brownfield_realtime_integration
+summary: "Bridge the upstream DexBuilder public websocket broker into the Dolymarket websocket envelope so live upstream markets stream in real time instead of polling every 15 seconds."
+entrypoint: app/main.py
+scope: "Brownfield change to the existing FastAPI + React Dolymarket repository. Add app/ws/dexbuilder_stream.py (upstream protocol + translation), add the websocket route /api/v4/prediction/live/ws, extend frontend/src/api/reconnectingSocket.ts with a live socket url helper, stream depth/bbo/trades on frontend/src/pages/LiveMarketDetailPage.tsx, declare the websockets runtime dependency and cover the bridge with hermetic tests against a local fake broker. Do not scaffold a new project and do not regenerate existing files."
+out_of_scope:
+  - "Private upstream channels (pred.orders, pred.usertrades, pred.positions, pred.settlements): they require a signed credential that the upstream does not currently accept"
+  - "Placing, cancelling or amending orders against upstream DexBuilder markets"
+  - "Replacing the local CLOB websocket at /api/v4/prediction/ws/public"
+  - "Persisting the API secret anywhere other than the environment"
+assumptions:
+  - "The upstream subscribe envelope is {t: unix milliseconds, id, op: 'subscribe', ch, payload: {items: [...]}}; public channels need no auth and the request timestamp must be within 60 seconds of server time"
+  - "The upstream data envelope is {t, trace_id, type: 'snapshot'|'update', ch, err, result}; acknowledgements carry {t, id, trace_id, op, ch, err, result}"
+  - "The upstream broker is currently unreachable (HTTP 503 for every channel), so the bridge must degrade to the existing REST polling instead of blocking the page"
+  - "The browser never talks to the upstream broker directly: the upstream url is server-side configuration (DEXBUILDER_WS_URL) and the browser speaks the Dolymarket envelope"
+business_rules:
+  - name: "Subscribe Request Shape"
+    formula: "Every upstream subscribe request is {t: <unix milliseconds>, id: <unique string>, op: 'subscribe', ch: <channel>, payload: {items: [<item>]}} where the item is {token_id, level} for pred.depth (level in 5, 10, 20, 50), {token_id} for pred.bbo, {condition_id} for pred.trades and {market_id} for pred.status."
+  - name: "Envelope Translation"
+    formula: "An upstream data message {type: 'snapshot'|'update', ch, err, result} is translated into the Dolymarket envelope: pred.depth becomes {channel: 'pred.depth', token_id, bids, asks, sequence, stream_sequence, timestamp}; pred.bbo becomes {channel: 'pred.bbo', token_id, bid_price, ask_price, last_price, timestamp, stream_sequence}; pred.trades becomes {channel: 'pred.trades', condition_id, token_id, price, shares, side, timestamp, stream_sequence}; pred.status becomes {channel: 'pred.status', market_id, status, closed, timestamp, stream_sequence}."
+  - name: "Numeric Fidelity"
+    formula: "Upstream prices and sizes are parsed with Decimal and only converted to float at the JSON boundary; the translated depth levels are [price string, size number] exactly like the local order-book snapshot."
+  - name: "Upstream Errors Surface"
+    formula: "An upstream error frame {err: {code, msg}} is forwarded to the browser as {channel: <channel>, error: <msg>, error_code: <code>} and never raises inside the server."
+  - name: "Graceful Degradation"
+    formula: "When the upstream broker cannot be reached the browser receives {action: 'error', detail: 'DEXBUILDER_UPSTREAM_UNAVAILABLE'} and the route closes cleanly; the live market page keeps working through its REST polling fallback."
+  - name: "Browser Talks to the Backend"
+    formula: "The browser connects to /api/v4/prediction/live/ws (host overridable with VITE_WS_URL) and never to the upstream broker; VITE_DEXBUILDER_WS_URL is removed from the frontend configuration because the upstream url is server-side only (DEXBUILDER_WS_URL)."
+endpoints: []
+endpoint_notes:
+  - "The feature ships one websocket route: WS /api/v4/prediction/live/ws. The drift checker only resolves HTTP routes, so the websocket is contracted through the business rules and the acceptance criteria instead of the HTTP endpoint list."
+acceptance_criteria:
+  - test: "Subscribe request envelope"
+    steps: "Assert the built subscribe request for pred.depth is {t: <unix ms>, id: <string>, op: 'subscribe', ch: 'pred.depth', payload: {items: [{token_id, level}]}} and that the id is unique per request."
+  - test: "Envelope translation"
+    steps: "Assert an upstream pred.depth snapshot with bids [['0.44','100']] translates into {channel: 'pred.depth', token_id, bids: [['0.44', 100.0]], asks: [...], sequence, stream_sequence, timestamp} and that an upstream pred.trades update translates into {channel: 'pred.trades', price, shares, side}."
+  - test: "Bridge end to end against a fake broker"
+    steps: "Run a local websocket server that speaks the upstream envelope, point DEXBUILDER_WS_URL at it, connect a client to /api/v4/prediction/live/ws, subscribe to pred.depth for a token and assert the browser receives the translated depth message."
+  - test: "Unreachable upstream degrades"
+    steps: "Point DEXBUILDER_WS_URL at a closed port, connect a client and assert it receives {action: 'error', detail: 'DEXBUILDER_UPSTREAM_UNAVAILABLE'} instead of hanging."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "websockets", "httpx", "pydantic", "pytest", "pytest-asyncio"]
+  env_vars:
+    DEXBUILDER_WS_URL: "wss://broker.dexbuilder.com/ws/dex-builder/prediction"
+global_verification:
+  - "pytest tests/test_dexbuilder_stream.py"
+  - "pytest tests/test_websocket_stream.py"
+  - "pytest tests/test_live_data.py"
+context:
+  language: Python
+  framework: FastAPI
+  test_framework: pytest

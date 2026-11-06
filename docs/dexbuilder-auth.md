@@ -134,4 +134,7 @@ signed with HMAC-SHA512 and sent as:
 ```
 
 The upstream broker currently answers HTTP 503 for every channel, so private
-streaming cannot be verified yet.
+streaming cannot be verified yet. The public channels need no signature and are
+bridged to the browser by the backend (see
+[Live streaming](live-data.md#live-streaming)); the private ones would use the
+signature above once a valid credential is configured.

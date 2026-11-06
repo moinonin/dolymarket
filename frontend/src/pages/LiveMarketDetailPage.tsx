@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Eye, History, Loader2, RefreshCw, WifiOff } from 'lucide-react'
 import { api, type Candle, type LiveMarket, type LiveTrade } from '../api/client'
+import { PredictionSocket, liveSocketUrl, type SocketState } from '../api/reconnectingSocket'
 import OrderBookLadder from '../components/OrderBookLadder'
 import { Skeleton } from '../components/ui'
 
@@ -21,6 +22,8 @@ export default function LiveMarketDetailPage({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [socketState, setSocketState] = useState<SocketState>('connecting')
+  const [streamError, setStreamError] = useState<string | null>(null)
 
   const loadMarket = useCallback(async () => {
     try {
@@ -68,6 +71,50 @@ export default function LiveMarketDetailPage({
     }
   }, [tokenId, marketId])
 
+  // Live upstream stream: the backend bridges the DexBuilder broker and
+  // translates it into the local envelope. REST polling stays as the fallback.
+  useEffect(() => {
+    if (!tokenId) return
+    const conditionId = market?.condition_id
+    setStreamError(null)
+    const socket = new PredictionSocket({
+      url: liveSocketUrl(),
+      subscriptions: [
+        { action: 'subscribe', channel: 'pred.depth', token_id: tokenId, level: 20 },
+        { action: 'subscribe', channel: 'pred.bbo', token_id: tokenId },
+        ...(conditionId
+          ? [{ action: 'subscribe' as const, channel: 'pred.trades', condition_id: conditionId }]
+          : []),
+      ],
+      getSnapshot: () => api.getLiveOrderBook(tokenId, 25),
+      onState: setSocketState,
+      onMessage: (msg) => {
+        if (msg?.action === 'error') {
+          setStreamError(msg.detail || 'The upstream stream is unavailable.')
+          return
+        }
+        if (msg?.channel === 'pred.depth' && msg.token_id === tokenId) {
+          setBook((current: any) => ({ ...(current || {}), ...msg }))
+        } else if (msg?.channel === 'pred.bbo' && msg.token_id === tokenId) {
+          setMarket((current) =>
+            current
+              ? {
+                  ...current,
+                  best_bid: msg.bid_price ?? current.best_bid,
+                  best_ask: msg.ask_price ?? current.best_ask,
+                  last_trade_price: msg.last_price ?? current.last_trade_price,
+                }
+              : current
+          )
+        } else if (msg?.channel === 'pred.trades') {
+          setTrades((current) => (current ? ([msg, ...current] as LiveTrade[]).slice(0, 50) : current))
+        }
+      },
+    })
+    socket.connect()
+    return () => socket.close()
+  }, [tokenId, market?.condition_id])
+
   const bids = useMemo(() => levelList(book?.bids || []), [book])
   const asks = useMemo(() => levelList(book?.asks || []), [book])
   const token = market?.tokens?.find((t) => t.token_id === tokenId) || market?.tokens?.[0]
@@ -113,6 +160,27 @@ export default function LiveMarketDetailPage({
           {market.event_title && <p className="mt-1 text-sm text-slate-400">{market.event_title}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+              socketState === 'open'
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            }`}
+            title={
+              streamError
+                ? streamError
+                : socketState === 'open'
+                  ? 'Streaming from the DexBuilder broker'
+                  : 'Waiting for the upstream stream'
+            }
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                socketState === 'open' ? 'bg-emerald-400' : 'animate-pulse bg-amber-400'
+              }`}
+            />
+            {socketState === 'open' ? 'Live stream' : `Stream ${socketState}`}
+          </span>
           {updatedAt && (
             <span className="text-[11px] text-slate-500">
               updated {new Date(updatedAt).toLocaleTimeString()}
@@ -134,6 +202,16 @@ export default function LiveMarketDetailPage({
           markets requires a connected DexBuilder account.
         </span>
       </div>
+
+      {streamError && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-700/40 bg-amber-950/25 px-3.5 py-2.5 text-xs text-amber-200/90">
+          <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            The upstream websocket is unavailable ({streamError}). The page keeps refreshing over
+            REST every {REFRESH_MS / 1000} seconds.
+          </span>
+        </div>
+      )}
 
       {(market.resolved || market.status === 'CLOSED') && (
         <div className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-700/40 bg-emerald-950/25 px-3.5 py-2.5 text-xs text-emerald-200/90">
