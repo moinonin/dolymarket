@@ -299,6 +299,8 @@ function DeskReviewPanel({
   const [status, setStatus] = useState('PENDING_REVIEW')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [rejecting, setRejecting] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -316,26 +318,43 @@ function DeskReviewPanel({
   }, [load])
 
   async function act(deskId: string, action: 'approve' | 'reject' | 'suspend') {
+    if (action === 'reject') {
+      // The reason is collected inline (no native prompt) so the admin can
+      // write a proper note for the desk owner.
+      setRejecting(deskId)
+      return
+    }
     setBusy(`${deskId}:${action}`)
     try {
       if (action === 'approve') await api.approveDesk(deskId)
-      else if (action === 'suspend') await api.adminSuspendDesk(deskId)
-      else {
-        const reason = window.prompt('Reason for rejection') || ''
-        if (!reason.trim()) {
-          setBusy(null)
-          return
-        }
-        await api.rejectDesk(deskId, reason.trim())
-      }
+      else await api.adminSuspendDesk(deskId)
       push(
         action === 'approve'
           ? 'Desk approved — it is now live in the leaderboard.'
-          : action === 'suspend'
-            ? 'Desk suspended.'
-            : 'Desk rejected.',
-        action === 'approve' ? 'info' : 'info'
+          : 'Desk suspended.',
+        'info'
       )
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'The review action failed', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function submitReject() {
+    if (!rejecting) return
+    const reason = rejectReason.trim()
+    if (!reason) {
+      push('A rejection needs a reason.', 'error')
+      return
+    }
+    setBusy(`${rejecting}:reject`)
+    try {
+      await api.rejectDesk(rejecting, reason)
+      push('Desk rejected — the owner sees the reason.', 'info')
+      setRejecting(null)
+      setRejectReason('')
       await load()
     } catch (err: any) {
       push(err?.message || 'The review action failed', 'error')
@@ -393,7 +412,8 @@ function DeskReviewPanel({
               <div className="min-w-0">
                 <p className="text-sm font-medium text-white">{d.name}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  {d.owner_email ?? 'unknown owner'} · {d.follower_count} followers · {d.status}
+                  {d.owner_email ?? 'unknown owner'} · {d.follower_count} followers · {d.status} ·
+                  submitted {formatTimestamp(d.created_at)}
                 </p>
                 {d.review_note && (
                   <p className="mt-1 text-[11px] text-amber-300/90">Note: {d.review_note}</p>
@@ -424,6 +444,39 @@ function DeskReviewPanel({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {rejecting && (
+        <div className="mt-3 rounded-xl border border-rose-800/50 bg-slate-900/70 p-4">
+          <p className="text-xs font-medium text-slate-200">
+            Reject “{desks?.find((d) => d.id === rejecting)?.name ?? 'this desk'}”
+          </p>
+          <textarea
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+            placeholder="Why is the desk rejected? The owner sees this note."
+            className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none placeholder:text-slate-600 focus:border-rose-500/50"
+          />
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              onClick={() => {
+                setRejecting(null)
+                setRejectReason('')
+              }}
+              className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void submitReject()}
+              disabled={busy !== null || !rejectReason.trim()}
+              className="rounded-lg bg-rose-500/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-rose-400 disabled:opacity-40"
+            >
+              {busy === `${rejecting}:reject` ? 'Rejecting…' : 'Reject desk'}
+            </button>
+          </div>
         </div>
       )}
     </section>
@@ -505,52 +558,111 @@ function CopyActivityPanel() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-800">
-          <table className="w-full min-w-[720px] text-left text-xs">
-            <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5 font-medium">Desk</th>
-                <th className="px-4 py-2.5 font-medium">Follower</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Ratio</th>
-                <th className="px-4 py-2.5 font-medium">Shares</th>
-                <th className="px-4 py-2.5 font-medium">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/70">
-              {jobs.map((j) => (
-                <tr key={j.id} className="text-slate-300">
-                  <td className="px-4 py-2.5">{j.desk_name ?? j.desk_id}</td>
-                  <td className="px-4 py-2.5">{j.follower_email ?? '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        j.status === 'FILLED'
-                          ? 'bg-emerald-500/15 text-emerald-300'
-                          : j.status === 'REJECTED'
-                            ? 'bg-rose-500/15 text-rose-300'
-                            : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {j.status}
-                    </span>
-                    {j.error_code && (
-                      <span className="ml-1.5 text-[10px] text-slate-500">{j.error_code}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono">{(j.copy_ratio * 100).toFixed(0)}%</td>
-                  <td className="px-4 py-2.5 font-mono">
-                    {j.filled_shares}/{j.requested_shares}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-500">{j.created_at}</td>
+        <>
+          <CopyJobSummary jobs={jobs} />
+          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
+            <table className="w-full min-w-[720px] text-left text-xs">
+              <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5 font-medium">Desk</th>
+                  <th className="px-4 py-2.5 font-medium">Follower</th>
+                  <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Ratio</th>
+                  <th className="px-4 py-2.5 font-medium">Shares</th>
+                  <th className="px-4 py-2.5 font-medium">Created</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70">
+                {jobs.map((j) => (
+                  <tr key={j.id} className="text-slate-300">
+                    <td className="px-4 py-2.5">{j.desk_name ?? j.desk_id}</td>
+                    <td className="px-4 py-2.5">{j.follower_email ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          j.status === 'FILLED'
+                            ? 'bg-emerald-500/15 text-emerald-300'
+                            : j.status === 'REJECTED'
+                              ? 'bg-rose-500/15 text-rose-300'
+                              : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {j.status}
+                      </span>
+                      {j.error_code && (
+                        <span className="ml-1.5 text-[10px] text-slate-500">{j.error_code}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono">{(j.copy_ratio * 100).toFixed(0)}%</td>
+                    <td className="px-4 py-2.5 font-mono">
+                      {j.filled_shares}/{j.requested_shares}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-500">{formatTimestamp(j.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+        </>
       )}
     </section>
   )
+}
+
+/** Counts derived from the loaded jobs — never a hardcoded row. */
+function CopyJobSummary({ jobs }: { jobs: AdminCopyJob[] }) {
+  const filled = jobs.filter((j) => j.status === 'FILLED').length
+  const rejected = jobs.filter((j) => j.status === 'REJECTED').length
+  const breached = jobs.filter((j) => j.limit_breached).length
+  const requested = jobs.reduce((sum, j) => sum + (j.requested_shares || 0), 0)
+  const filledShares = jobs.reduce((sum, j) => sum + (j.filled_shares || 0), 0)
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <Summary label="Jobs" value={String(jobs.length)} />
+      <Summary label="Filled" value={String(filled)} tone="emerald" />
+      <Summary label="Rejected" value={String(rejected)} tone="rose" />
+      <Summary label="Limit hits" value={String(breached)} tone="amber" />
+      <Summary label="Shares" value={`${filledShares}/${requested}`} />
+    </div>
+  )
+}
+
+function Summary({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone?: 'emerald' | 'rose' | 'amber'
+}) {
+  const toneClass =
+    tone === 'emerald'
+      ? 'text-emerald-300'
+      : tone === 'rose'
+        ? 'text-rose-300'
+        : tone === 'amber'
+          ? 'text-amber-300'
+          : 'text-white'
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-3.5 py-2.5">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-0.5 font-mono text-sm font-semibold ${toneClass}`}>{value}</div>
+    </div>
+  )
+}
+
+/** Short, readable timestamp for the console tables. */
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -142,7 +142,7 @@ export default function CopyActivityPage({ onOpenDesk }: { onOpenDesk: (id: stri
                   <td className="px-4 py-2.5 font-mono">
                     {j.filled_shares}/{j.requested_shares}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{j.created_at}</td>
+                  <td className="px-4 py-2.5 text-slate-500">{formatTimestamp(j.created_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -151,4 +151,17 @@ export default function CopyActivityPage({ onOpenDesk }: { onOpenDesk: (id: stri
       )}
     </div>
   )
+}
+
+/** Short, readable timestamp for the copy table. */
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
