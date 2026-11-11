@@ -419,3 +419,133 @@ class CopyJob(Base):
 
 # One-to-one relationship convenience (added here so the model graph is complete).
 User.desk = relationship("Desk", back_populates="owner", uselist=False)
+
+
+# ---------------------------------------------------------------------------
+# AGX (Algoxen) token utility layer
+#
+# AGX is a complementary utility token: it never gates trading, collateral or
+# settlement. Every amount is fixed-point ``Numeric(36, 18)`` and the service
+# layer keeps it in :class:`decimal.Decimal`; binary floating point is never
+# used for token math. ``AgxLedger`` is append-only and records the signed
+# change to the spendable bucket plus the balance after each mutation.
+# ---------------------------------------------------------------------------
+AGX_AMOUNT = Numeric(36, 18)
+
+
+class AgxBalance(Base):
+    __tablename__ = "agx_balances"
+
+    user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+    balance = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    staked_balance = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    locked_gating_balance = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    locked_dispute_balance = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    pending_rewards = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    last_reward_epoch = Column(String(36), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), default=_now_utc, onupdate=_now_utc
+    )
+
+
+class AgxStake(Base):
+    __tablename__ = "agx_stakes"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    locked_until = Column(DateTime(timezone=True), nullable=False, index=True)
+    status = Column(String(16), nullable=False, default="ACTIVE", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+    updated_at = Column(
+        DateTime(timezone=True), default=_now_utc, onupdate=_now_utc
+    )
+
+
+class AgxUnstakeCooldown(Base):
+    __tablename__ = "agx_unstake_cooldowns"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    stake_id = Column(
+        String(36), ForeignKey("agx_stakes.id"), nullable=False, index=True
+    )
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    cooldown_until = Column(DateTime(timezone=True), nullable=False, index=True)
+    status = Column(String(16), nullable=False, default="PENDING", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+
+
+class AgxDisputeStake(Base):
+    __tablename__ = "agx_dispute_stakes"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    market_id = Column(
+        String(36), ForeignKey("markets.id"), nullable=False, index=True
+    )
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    status = Column(String(16), nullable=False, default="LOCKED", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AgxDeskStake(Base):
+    __tablename__ = "agx_desk_stakes"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    desk_id = Column(String(36), ForeignKey("desks.id"), nullable=False, index=True)
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    status = Column(String(16), nullable=False, default="LOCKED", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AgxMarketStake(Base):
+    __tablename__ = "agx_market_stakes"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    market_id = Column(
+        String(36), ForeignKey("markets.id"), nullable=False, index=True
+    )
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    status = Column(String(16), nullable=False, default="LOCKED", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AgxRewardEpoch(Base):
+    __tablename__ = "agx_reward_epochs"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    epoch_number = Column(Integer, unique=True, nullable=False, index=True)
+    total_fees_collected = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    total_staked_supply = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    reward_per_token = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    creator_share = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    staker_pool = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    # {creator_user_id: accrued_fee_weight} kept as decimal strings so the
+    # creator split is attributable without touching the fee path's precision.
+    creator_accruals = Column(JSON, nullable=False, default=dict)
+    started_at = Column(DateTime(timezone=True), default=_now_utc)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    distributed = Column(Boolean, nullable=False, default=False, index=True)
+
+
+class AgxLedger(Base):
+    __tablename__ = "agx_ledger"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String(32), nullable=False, index=True)
+    amount = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    balance_after = Column(AGX_AMOUNT, nullable=False, default=Decimal(0))
+    reference_id = Column(String(96), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc, index=True)
+
+
+User.agx_balance = relationship(
+    "AgxBalance", uselist=False, cascade="all, delete-orphan"
+)

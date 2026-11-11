@@ -2,5 +2,5 @@ version: 1
 specs_dir: .githeri/specs
 plans_dir: .githeri/plans
 provider: gemini
-model: default
+model: gemini-2.5-flash-lite
 api_url: https://githeri.fastapicloud.dev

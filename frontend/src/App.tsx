@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   Briefcase,
+  Coins,
   Gavel,
   Home,
   LineChart,
@@ -35,6 +36,7 @@ import SettledPositionsPage from './pages/SettledPositionsPage'
 import MarketDetailPage from './pages/MarketDetailPage'
 import LiveMarketsPage from './pages/LiveMarketsPage'
 import LiveMarketDetailPage from './pages/LiveMarketDetailPage'
+import AgxStakingPage from './pages/AgxStakingPage'
 
 // Tiny hash router — path segments after '#'.
 function useHashRoute(): [string[], (to: string) => void] {
@@ -114,6 +116,8 @@ function Shell() {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
   } else if (section === 'portfolio') {
     page = <PortfolioWrapper onNavigate={navigate} />
+  } else if (section === 'agx') {
+    page = <AgxStakingPage />
   } else if (section === 'resolution') {
     page = <ResolutionPage />
   } else if (section === 'activity') {
@@ -143,7 +147,12 @@ function Shell() {
 }
 
 function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) {
-  return <PortfolioPage onOpenEvent={(slug) => onNavigate(`event/${slug}`)} />
+  return (
+    <PortfolioPage
+      onOpenEvent={(slug) => onNavigate(`event/${slug}`)}
+      onNavigate={onNavigate}
+    />
+  )
 }
 
 const NAV_ITEMS = [
@@ -154,6 +163,7 @@ const NAV_ITEMS = [
   { key: 'trades', label: 'Trades', icon: TrendingUp },
   { key: 'settled', label: 'Settled', icon: Briefcase },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
+  { key: 'agx', label: 'AGX', icon: Coins },
   { key: 'resolution', label: 'Resolution', icon: Gavel },
   { key: 'activity', label: 'Activity', icon: Activity },
 ]
@@ -164,6 +174,7 @@ const ANON_NAV_ITEMS = [
   { key: 'live', label: 'Live', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'tags', label: 'Tags', icon: Tag },
+  { key: 'agx', label: 'AGX', icon: Coins },
 ]
 
 function Nav({

@@ -62,6 +62,10 @@ class CreateDeskRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     slug: str = Field(min_length=1, max_length=96, pattern=r"^[a-z0-9-]+$")
     description: str | None = None
+    # Pro Desks are the AGX-gated tier: the caller must bond 500 AGX, auto
+    # locked from spendable balance on creation. Standard community desks keep
+    # the unchanged, zero-AGX path (the default).
+    pro: bool = False
 
 
 class UpdateDeskRequest(BaseModel):
@@ -177,6 +181,12 @@ async def create_desk(
     )
     session.add(desk)
     await session.flush()
+    if body.pro:
+        # 500 AGX activation bond. Raising here rolls the whole request back,
+        # so an unbonded Pro Desk is never persisted.
+        from app.services import agx
+
+        await agx.ensure_desk_bond(session, user.id, desk.id)
     return {"status": "DRAFT", "desk": _desk_payload(desk)}
 
 
@@ -288,6 +298,10 @@ async def archive_desk(
         raise HTTPException(status_code=409, detail="DESK_INVALID_TRANSITION")
     desk.status = "ARCHIVED"
     desk.archived_at = datetime.now(UTC)
+    # A clean archive refunds the Pro Desk activation bond, if one was locked.
+    from app.services import agx
+
+    await agx.release_desk_gating(session, desk.owner_user_id, desk.id)
     followers = (
         await session.execute(select(DeskFollower).where(DeskFollower.desk_id == desk_id))
     ).scalars().all()

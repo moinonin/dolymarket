@@ -1,117 +1,679 @@
 task_id: agx-token-utility-layer
-status: planned
-archetype: brownfield_token_utility
-summary: "Algoxen (AGX) token utility layer for Dolymarket: staking with lock/cooldown periods, tiered fee discounts, oracle dispute staking with slashing, Pro Desk and market creation gating, epoch-based reward distribution, and on-chain balance sync. All amounts use Decimal precision (18 decimals)."
+status: active
+archetype: transactional_ledger
+summary: "Algoxen (AGX) token utility layer for the existing Dolymarket CLOB. Adds a double-entry AGX ledger with four balance buckets, staking with a 7-day lock and 3-day cooldown, tiered taker-fee discounts, 100 AGX optimistic-oracle dispute bonds with slash-to-treasury, feature gating bonds for Pro Desks and official markets, and idempotent 24-hour epoch fee distribution splitting 40 percent to creators and 60 percent to stakers. AGX is purely complementary: every existing USDC trading, collateral, settlement and resolution path keeps working for a user holding zero AGX."
 entrypoint: app/main.py
-scope: "Brownfield change to the existing FastAPI + React Dolymarket repository. Add AGX database models (stakes, cooldowns, dispute stakes, creation locks, reward epochs), add AGX service layer with staking/unstaking/withdrawal/reward/dispute/gating logic, add API routes under /api/v1/agx/*, integrate fee discounts into the order execution path, integrate dispute staking into the resolution flow, integrate desk/market creation gating into admin and desk routes, add AGX balance display to the frontend, and cover all flows with hermetic tests. Do not scaffold a new project and do not regenerate existing files."
+scope: "Additive brownfield extension to the existing FastAPI + React - SQLAlchemy Dolymarket repository. Extend app/models/domain.py, app/services/, app/api/v1/, app/engine/clob.py, app/main.py and frontend/src/. Do not scaffold a new project, do not declare a second declarative Base or FastAPI instance, do not regenerate existing files, and do not remove or rename any endpoint recorded in .githeri/baseline.json."
 out_of_scope:
-  - "On-chain ERC-20 contract deployment or smart contract code (the contract address is configured via AGX_TOKEN_ADDRESS)"
-  - "Wallet connection (MetaMask/WalletConnect) — balance sync uses a manual or indexer-driven endpoint"
-  - "Token transfer UI or DEX integration for acquiring AGX"
-  - "Governance voting or DAO mechanics"
-  - "Multi-chain support beyond the configured AGX_CHAIN_ID"
+  - "On-chain contract deployment, Foundry tooling, wallets, and Arbitrum RPC transaction signing"
+  - "A second matching engine or a parallel order path; AGX hooks into the existing in-memory CLOB only"
+  - "Making AGX a prerequisite for trading, depositing, withdrawing collateral, holding positions or redeeming payouts"
+  - "Pooled or commingled AGX custody, transferable staking receipts, or AGX as a tradable outcome token"
+  - "Governance voting, proposal execution, or discretionary treasury spending"
+  - "Binary floating point anywhere in AGX token math"
 assumptions:
-  - "AGX is an ERC-20 token with 18 decimals on the configured chain (AGX_CHAIN_ID)"
-  - "The local database tracks AGX balances for fast reads; on-chain sync is triggered manually or by an indexer"
-  - "Staking, unstaking, and reward claiming are off-chain ledger operations backed by on-chain deposits"
-  - "The existing CollateralAccount and fee system remains unchanged; AGX fee discounts are applied as a multiplier at execution time"
-  - "Decimal precision (18 decimals) is used for all AGX amounts, matching the ERC-20 standard"
-  - "The existing optimistic oracle (propose/dispute/resolve) is extended with AGX dispute staking"
+  - "The change is additive: every endpoint recorded in .githeri/baseline.json must keep resolving after the extension"
+  - "AGX amounts are decimal strings at every JSON boundary and are parsed with decimal.Decimal, never float"
+  - "Error responses follow the existing repository convention of HTTP status plus a stable UPPER_SNAKE code in detail"
+  - "On-chain balance verification is performed by the sync endpoint; the platform never mints spendable AGX without a verified deposit record"
 business_rules:
-  - name: "Staking Minimum and Precision"
-    formula: "Minimum stake is 1 AGX. All balance, stake, and reward values use Decimal with 18 decimal places. No floating point in any AGX calculation."
-  - name: "Unstaking Lock and Cooldown"
-    formula: "Staked AGX has a minimum lock period of 7 days (AGX_MIN_STAKE_LOCK_DAYS). Unstaking initiates a cooldown of 3 days (AGX_UNSTAKE_COOLDOWN_DAYS). Funds can only be withdrawn after both the lock period and cooldown have elapsed."
-  - name: "Fee Discount Tiers"
-    formula: "Staked AGX grants tiered taker-fee discounts: Tier 1 (100-999 AGX) = 5%, Tier 2 (1000-4999 AGX) = 10%, Tier 3 (5000+ AGX) = 15%. Discount = fee * (1 - tier_rate). Applied at order execution. Zero staked = no discount."
-  - name: "Dispute Staking"
-    formula: "Disputing a market resolution requires staking minimum 100 AGX (AGX_DISPUTE_MIN_STAKE). Maximum 1 active dispute stake per user per market. If upheld: disputer receives stake back + reward from loser's stake. If rejected: disputer's stake is slashed to protocol treasury. Dispute stakes are locked until resolution."
-  - name: "Desk Creation Gating"
-    formula: "Creating a Pro Desk requires locking 500 AGX (AGX_DESK_MIN_STAKE). The AGX is locked for the desk's active lifetime. On archive or rejection, locked AGX is returned (minus slashing for violations)."
-  - name: "Market Creation Gating"
-    formula: "Creating a market (admin) requires locking 1000 AGX (AGX_MARKET_MIN_STAKE). The AGX is returned when the market resolves or is closed."
-  - name: "Epoch Reward Distribution"
-    formula: "Rewards distributed per epoch (24h, AGX_REWARD_EPOCH_HOURS). user_reward = total_fees_collected * (user_staked_balance / total_staked_supply). Idempotent: cannot distribute the same epoch twice. Unclaimed rewards accumulate."
-  - name: "Balance Sync"
-    formula: "Local AGX balance is synced from on-chain via POST /api/v1/agx/sync-balance. Deposits and withdrawals are recorded in the AGX ledger. Local balance may not exceed on-chain balance."
-  - name: "Slashing Destination"
-    formula: "Slashed AGX (from rejected disputes or desk violations) goes to the protocol treasury, not redistributed to stakers."
-  - name: "Precision"
-    formula: "All AGX amounts stored as Numeric(36,18) in the database. All calculations use Decimal. Float is only used at the JSON serialization boundary."
+  - name: "Zero-Token Invariant"
+    formula: "A user with no AgxBalance row, a zero staked_balance, or a failed on-chain sync is Tier 0 with discount 0.00; taker fee, collateral deposit/withdraw, order matching, settlement and payout redemption all remain available and unchanged."
+  - name: "Double-Entry AGX Ledger"
+    formula: "Every mutation of the spendable bucket writes exactly one immutable AgxLedger row (user_id, kind, amount, balance_after, reference_id, created_at); amount is the signed change to the spendable balance, balance_after is the spendable balance after the mutation, and the sum of a user's ledger amounts equals that user's spendable balance. Bucket moves that leave the spendable balance unchanged (UNSTAKE_COOLDOWN, SLASH) still emit one row with amount 0 so every mutation remains auditable. Kinds are limited to DEPOSIT, WITHDRAWAL, STAKE, UNSTAKE_COOLDOWN, WITHDRAW_STAKE, FEE_REWARD, DISPUTE_LOCK, DISPUTE_RETURN, DISPUTE_REWARD, SLASH, GATING_LOCK, GATING_RELEASE."
+  - name: "Verified Balance Ceiling"
+    formula: "spendable balance after POST /api/v1/agx/sync-balance equals prior spendable balance plus the verified net positive delta; spendable balance can never exceed cumulative verified on-chain deposits minus cumulative withdrawals."
+  - name: "Stake Lock"
+    formula: "amount >= AGX_MIN_STAKE (1) is required (HTTP 422 AGX_STAKE_BELOW_MINIMUM); a stake row is created with status ACTIVE and locked_until = created_at + AGX_MIN_STAKE_LOCK_DAYS (7 days); POST /api/v1/agx/unstake before locked_until returns HTTP 422 AGX_STAKE_LOCKED."
+  - name: "Unstake Cooldown"
+    formula: "Unstaking moves the amount out of staked_balance into a PENDING AgxUnstakeCooldown row with cooldown_until = now + AGX_UNSTAKE_COOLDOWN_DAYS (3 days) and sets the stake status to COOLDOWN; POST /api/v1/agx/withdraw before cooldown_until returns HTTP 422 AGX_COOLDOWN_ACTIVE; after the deadline the cooldown completes, the stake becomes WITHDRAWN, and the amount returns to spendable balance."
+  - name: "Tier Discount Ladder"
+    formula: "Tier is derived only from staked_balance: Tier 0 below 100 AGX (0 percent), Tier 1 at 100 through 999.99 AGX (5 percent), Tier 2 at 1000 through 4999.99 AGX (10 percent), Tier 3 at 5000 AGX and above (15 percent). Discounts are relative to the existing base fee, never absolute fee replacement."
+  - name: "Effective Taker Fee"
+    formula: "apply_fee_discount(user_id, base_fee) = base_fee * (Decimal('1.0') - tier_discount), quantized to 18 decimal places with ROUND_DOWN; a missing AgxBalance row yields base_fee unchanged. The existing parabolic fee base_fee = shares * fee_rate * price * (1 - price) is preserved; maker fee handling is untouched."
+  - name: "Dispute Bond Semantics"
+    formula: "A dispute requires AGX_DISPUTE_MIN_STAKE (100) of spendable balance and at most one active AgxDisputeStake per (user_id, market_id), else HTTP 409 AGX_DISPUTE_EXISTS. Upheld disputes set status RETURNED, return the bonded amount and credit a 20 percent bonus from the staker pool as a DISPUTE_REWARD ledger entry. Rejected disputes set status SLASHED, credit nothing to the user, and move the full bond to AGX_TREASURY_ADDRESS as a SLASH entry."
+  - name: "Gating Bonds"
+    formula: "Pro Desk activation requires locked_gating_balance >= AGX_DESK_MIN_STAKE (500) recorded in AgxDeskStake; official or curated market deployment requires AGX_MARKET_MIN_STAKE (1000) recorded in AgxMarketStake; community market creation keeps its 50 USDC anti-spam bond and Tier 2 and above receive a 50 percent reduction to 25 USDC. Insufficient gating balance returns HTTP 409 AGX_INSUFFICIENT_GATE. Bonds are refunded only on clean desk archive or final market settlement, emitting GATING_RELEASE."
+  - name: "Epoch Fee Split"
+    formula: "Every fill contributes taker and maker fees to the active epoch; on distribution the collected total is split AGX_CREATOR_FEE_SHARE (0.40) to the market creator account and AGX_STAKER_FEE_SHARE (0.60) to the staker pool, and total_fees_collected equals creator_share + staker_pool exactly."
+  - name: "Proportional Reward"
+    formula: "user_reward = staker_pool * (user_staked_balance / total_staked_supply) quantized to 18 decimal places with ROUND_DOWN; when total_staked_supply is zero the staker pool stays undistributed and no user is credited."
+  - name: "Epoch Idempotency"
+    formula: "AGX_REWARD_EPOCH_HOURS is 24; AgxRewardEpoch.epoch_number is unique; distributing an epoch whose distributed flag is already true returns HTTP 409 AGX_EPOCH_ALREADY_DISTRIBUTED and performs no ledger writes. Claiming rewards moves pending_rewards to spendable balance and emits exactly one FEE_REWARD entry, leaving the remainder safe for later epochs."
+  - name: "Decimal Money"
+    formula: "All AGX balances, stakes, bonds, fees and rewards use SQLAlchemy Numeric(36, 18) and Python Decimal; JSON serialization emits decimal strings; float conversion is prohibited in token arithmetic and only permitted for non-monetary display fields outside AGX routes."
+acceptance_criteria:
+  - test: "Tier discount worked example"
+    steps: "With base_fee=2.000000000000000000 assert apply_fee_discount is 2.000000000000000000 for 0 staked, 1.900000000000000000 for 250 staked, 1.800000000000000000 for 2500 staked and 1.700000000000000000 for 6000 staked, and that a user with no AgxBalance row stays at 2.000000000000000000"
+  - test: "Stake lock worked example"
+    steps: "Stake 100 at T0; unstake at T0+6d returns 422 AGX_STAKE_LOCKED and leaves staked_balance at 100; unstake at T0+7d succeeds and creates a PENDING cooldown with cooldown_until = T0+10d"
+  - test: "Cooldown withdrawal worked example"
+    steps: "Withdraw a PENDING cooldown at T0+9d returns 422 AGX_COOLDOWN_ACTIVE with the amount still PENDING; withdraw at T0+10d returns the amount to spendable balance, sets status COMPLETED, the stake status WITHDRAWN, and appends one WITHDRAW_STAKE ledger row"
+  - test: "Epoch split and proportional reward worked example"
+    steps: "Seed total_fees_collected=1000.000000000000000000 with two stakers holding 3000 and 1000 of a 4000 total_staked_supply; assert creator share 400.000000000000000000, staker pool 600.000000000000000000, rewards 450.000000000000000000 and 150.000000000000000000, and that a second distribution returns 409 AGX_EPOCH_ALREADY_DISTRIBUTED without new ledger rows"
+  - test: "Dispute settlement worked example"
+    steps: "Bond 100 with a 20 percent bonus: upheld returns 100 to spendable balance and credits 20 as DISPUTE_REWARD; rejected leaves the user at 0 returned, marks the stake SLASHED, and credits the treasury address 100 as SLASH. A second active dispute for the same user and market returns 409 AGX_DISPUTE_EXISTS"
+  - test: "Gating thresholds"
+    steps: "Desk activation with 499.999999999999999999 locked returns 409 AGX_INSUFFICIENT_GATE while 500 succeeds; official market deployment with 999.999999999999999999 returns 409 while 1000 succeeds; a Tier 2 staker pays a 25.0000 community bond instead of 50.0000"
+  - test: "Zero-token regression"
+    steps: "With no AgxBalance row, an authenticated user registers, deposits USDC, places a crossing BUY order, receives a fill at the unchanged parabolic fee, withdraws collateral, and redeems a settled winning position, all with 2xx responses and no AGX-dependent error"
+  - test: "Change is additive"
+    steps: "Run pytest tests/test_route_baseline.py and assert every method and path recorded in .githeri/baseline.json still resolves"
 endpoints:
   - method: POST
     path: /api/v1/agx/stake
+    description: "Stake AGX from spendable balance into a locked ACTIVE stake"
+    expected_status: 201
   - method: POST
     path: /api/v1/agx/unstake
+    description: "Begin unstaking after the 7-day lock, creating a 3-day cooldown"
+    expected_status: 200
   - method: POST
     path: /api/v1/agx/withdraw
+    description: "Complete a matured cooldown and return AGX to spendable balance"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/balance
+    description: "Four balance buckets, derived tier and discount for the caller"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/stakes
+    description: "The caller's stakes and cooldowns with lifecycle states"
+    expected_status: 200
   - method: POST
     path: /api/v1/agx/claim-rewards
+    description: "Move accrued pending rewards into spendable balance"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/rewards/history
+    description: "The caller's FEE_REWARD ledger entries per epoch"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/tiers
+    description: "Public tier ladder with thresholds, discounts and current supply stats"
+    expected_status: 200
   - method: POST
     path: /api/v1/agx/dispute-stake
+    description: "Lock a 100 AGX bond against a proposed market outcome"
+    expected_status: 201
   - method: GET
     path: /api/v1/agx/dispute-stakes
+    description: "The caller's dispute bonds and their resolution status"
+    expected_status: 200
   - method: POST
     path: /api/v1/agx/sync-balance
+    description: "Reconcile verified on-chain AGX deposits with the off-chain ledger"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/stats
+    description: "Protocol AGX stats: supply buckets, staker count, epoch totals"
+    expected_status: 200
   - method: POST
     path: /api/v1/agx/epochs/distribute
+    description: "Distribute one 24-hour epoch, splitting creator and staker shares"
+    expected_status: 200
   - method: GET
     path: /api/v1/agx/epochs
-acceptance_criteria:
-  - test: "Stake and unstake lifecycle"
-    steps: "Stake 100 AGX, verify balance decreases and staked balance increases. Attempt unstake before 7-day lock expires -> 422. After lock, unstake -> cooldown starts. Attempt withdraw during cooldown -> 422. After cooldown, withdraw -> balance restored."
-  - test: "Fee discount by tier"
-    steps: "With 0 staked, fee discount is 0%. With 500 staked, discount is 5%. With 2000 staked, discount is 10%. With 6000 staked, discount is 15%. Verify Decimal precision in all calculations."
-  - test: "Dispute stake lifecycle"
-    steps: "Stake 100 AGX to dispute a market. Verify stake is locked. Resolve dispute as upheld -> stake returned + reward. Resolve as rejected -> stake slashed. Attempt second dispute on same market -> 409. Attempt dispute with < 100 AGX -> 422."
-  - test: "Desk creation gating"
-    steps: "Attempt desk creation with < 500 AGX staked -> 422. With 500+ AGX staked, desk created and AGX locked. Archive desk -> AGX returned."
-  - test: "Market creation gating"
-    steps: "Admin creates market with < 1000 AGX staked -> 422. With 1000+ AGX, market created and AGX locked. Market resolves -> AGX returned."
-  - test: "Reward distribution"
-    steps: "Distribute epoch rewards, verify proportional payout. Attempt duplicate distribution -> 409. Claim rewards, verify balance updated. Verify unclaimed rewards accumulate."
-  - test: "Balance sync"
-    steps: "Sync on-chain balance, verify local balance matches. Attempt to stake more than local balance -> 422."
-  - test: "Edge cases"
-    steps: "Stake 0 AGX -> 422. Unstake more than staked -> 422. Withdraw before cooldown -> 422. Double epoch distribution -> 409. Stake during cooldown -> 422."
-test_fixtures: []
+    description: "Epoch history with totals, reward_per_token and distributed flag"
+    expected_status: 200
+  - method: POST
+    path: /api/v1/desks/
+    description: "Existing Pro Desk creation route, now enforcing the 500 AGX activation bond"
+    expected_status: 201
 environment:
-  packages: ["fastapi", "sqlalchemy", "pydantic", "pytest", "pytest-asyncio", "httpx", "web3"]
+  packages:
+    - fastapi
+    - sqlalchemy
+    - pydantic
+    - pytest
+    - pytest-asyncio
+    - httpx
+    - aiosqlite
   env_vars:
-    AGX_TOKEN_ADDRESS: "0x1111111111111111111111111111111111111111"
+    DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    JWT_SECRET: "test-secret-key-1234567890abcdef"
     AGX_CHAIN_ID: "42161"
-    AGX_RPC_URL: "https://arb1.arbitrum.io/rpc"
+    AGX_TOKEN_ADDRESS: "0x000000000000000000000000000000000000a6x0"
+    AGX_TREASURY_ADDRESS: "0x0000000000000000000000000000000000007ea5"
     AGX_MIN_STAKE: "1"
-    AGX_UNSTAKE_COOLDOWN_DAYS: "3"
     AGX_MIN_STAKE_LOCK_DAYS: "7"
-    AGX_DISPUTE_MIN_STAKE: "100"
-    AGX_DESK_MIN_STAKE: "500"
-    AGX_MARKET_MIN_STAKE: "1000"
-    AGX_REWARD_EPOCH_HOURS: "24"
-    AGX_FEE_DISCOUNT_TIER_1: "100"
-    AGX_FEE_DISCOUNT_TIER_2: "1000"
-    AGX_FEE_DISCOUNT_TIER_3: "5000"
+    AGX_UNSTAKE_COOLDOWN_DAYS: "3"
     AGX_FEE_DISCOUNT_RATE_1: "0.05"
     AGX_FEE_DISCOUNT_RATE_2: "0.10"
     AGX_FEE_DISCOUNT_RATE_3: "0.15"
-  services: []
+    AGX_DISPUTE_MIN_STAKE: "100"
+    AGX_DISPUTE_REWARD_PCT: "0.20"
+    AGX_DESK_MIN_STAKE: "500"
+    AGX_MARKET_MIN_STAKE: "1000"
+    AGX_COMMUNITY_BOND_USDC: "50.0000"
+    AGX_TIER2_BOND_DISCOUNT: "0.50"
+    AGX_REWARD_EPOCH_HOURS: "24"
+    AGX_CREATOR_FEE_SHARE: "0.40"
+    AGX_STAKER_FEE_SHARE: "0.60"
+test_fixtures: []
 global_verification:
-  - "pytest tests/test_agx_staking.py"
-  - "pytest tests/test_agx_disputes.py"
-  - "pytest tests/test_agx_rewards.py"
-  - "pytest tests/test_agx_gating.py"
-  - "pytest tests/test_agx_api.py"
+  - "pytest tests/test_agx_staking.py tests/test_agx_disputes.py tests/test_agx_rewards.py tests/test_agx_gating.py tests/test_agx_api.py tests/test_agx_zero_token_regression.py"
+  - "pytest tests/"
+  - "npm --prefix frontend run build"
+local_goals:
+  - id: L1
+    description: "INSPECT: confirm the existing model module, helpers and numeric conventions before extending them"
+    type: inspect
+    verification:
+      type: file_exists
+      path: "app/models/domain.py"
+      expect:
+        exists: true
+        content_contains: "class Desk"
+  - id: L2
+    description: "MODIFY: append the AGX entities to app/models/domain.py without redeclaring Base, _uuid or _now_utc"
+    type: create
+    blueprint: |
+      # Appended to the existing app/models/domain.py. Reuse Base, _uuid and
+      # _now_utc already declared at module scope.
+      from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String, UniqueConstraint
+
+      AGX = Numeric(36, 18)
+
+      class AgxBalance(Base):
+          __tablename__ = "agx_balances"
+          user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+          balance = Column(AGX, nullable=False, default=0)
+          staked_balance = Column(AGX, nullable=False, default=0)
+          locked_gating_balance = Column(AGX, nullable=False, default=0)
+          locked_dispute_balance = Column(AGX, nullable=False, default=0)
+          pending_rewards = Column(AGX, nullable=False, default=0)
+          last_reward_epoch = Column(String(36), nullable=True)
+          updated_at = Column(DateTime(timezone=True), default=_now_utc, onupdate=_now_utc)
+
+      # Also append: AgxStake (locked_until, status), AgxUnstakeCooldown
+      # (stake_id, cooldown_until, status), AgxDisputeStake (unique
+      # user_id + market_id for active rows), AgxDeskStake, AgxMarketStake,
+      # AgxRewardEpoch (unique epoch_number, distributed) and AgxLedger
+      # (user_id, kind, amount, balance_after, reference_id, created_at).
+    acceptance_criteria:
+      - test: "Models are additive"
+        steps: "Read app/models/domain.py and confirm the AGX classes exist beside User, Market, Order, Desk and that Base and the helpers were not replaced"
+      - test: "Precision is fixed point"
+        steps: "Confirm every AGX money column is Numeric(36, 18) and no Float column is introduced"
+    verification:
+      type: file_exists
+      path: "app/models/domain.py"
+      expect:
+        exists: true
+        content_contains: "class AgxLedger"
+  - id: L3
+    description: "CREATE: the AGX service layer in app/services/agx.py implementing the full documented function surface"
+    type: create
+    blueprint: |
+      from decimal import ROUND_DOWN, Decimal
+
+      from sqlalchemy import select
+
+      from app.models.domain import (
+          AgxBalance,
+          AgxDisputeStake,
+          AgxLedger,
+          AgxRewardEpoch,
+          AgxStake,
+          AgxUnstakeCooldown,
+      )
+
+      Q18 = Decimal("0.000000000000000001")
+      LADDER = (
+          (Decimal("5000"), "3", Decimal("0.15")),
+          (Decimal("1000"), "2", Decimal("0.10")),
+          (Decimal("100"), "1", Decimal("0.05")),
+      )
+
+      def q18(value) -> Decimal:
+          return Decimal(value).quantize(Q18, rounding=ROUND_DOWN)
+
+      def tier_for(staked: Decimal):
+          for floor, tier, discount in LADDER:
+              if staked >= floor:
+                  return tier, discount
+          return "0", Decimal("0")
+
+      def _ledger(session, user_id, kind, amount, balance_after, reference_id):
+          session.add(
+              AgxLedger(
+                  user_id=user_id,
+                  kind=kind,
+                  amount=q18(amount),
+                  balance_after=q18(balance_after),
+                  reference_id=reference_id,
+              )
+          )
+
+      async def get_balance(session, user_id, for_update=False):
+          stmt = select(AgxBalance).where(AgxBalance.user_id == user_id)
+          if for_update:
+              stmt = stmt.with_for_update()
+          row = (await session.execute(stmt)).scalar_one_or_none()
+          if row is None:
+              row = AgxBalance(
+                  user_id=user_id,
+                  balance=Decimal(0),
+                  staked_balance=Decimal(0),
+                  locked_gating_balance=Decimal(0),
+                  locked_dispute_balance=Decimal(0),
+                  pending_rewards=Decimal(0),
+              )
+              session.add(row)
+              await session.flush()
+          return row
+
+      async def get_tier(session, user_id):
+          row = await get_balance(session, user_id)
+          return tier_for(Decimal(row.staked_balance))[0]
+
+      async def apply_fee_discount(user_id, base_fee, session=None):
+          if session is None:
+              return q18(base_fee)
+          stmt = select(AgxBalance).where(AgxBalance.user_id == user_id)
+          row = (await session.execute(stmt)).scalar_one_or_none()
+          if row is None:
+              return q18(base_fee)
+          _, discount = tier_for(Decimal(row.staked_balance))
+          return q18(Decimal(base_fee) * (Decimal("1") - discount))
+
+      async def stake(session, user_id, amount):
+          amount = q18(amount)
+          if amount < Decimal("1"):
+              raise ValueError("AGX_STAKE_BELOW_MINIMUM")
+          row = await get_balance(session, user_id, for_update=True)
+          if Decimal(row.balance) < amount:
+              raise ValueError("AGX_INSUFFICIENT_BALANCE")
+          row.balance = Decimal(row.balance) - amount
+          row.staked_balance = Decimal(row.staked_balance) + amount
+          record = AgxStake(user_id=user_id, amount=amount, status="ACTIVE")
+          session.add(record)
+          await session.flush()
+          _ledger(session, user_id, "STAKE", amount, row.balance, record.id)
+          return record
+
+      async def unstake(session, user_id, stake_id):
+          record = await session.get(AgxStake, stake_id, with_for_update=True)
+          if record is None or record.user_id != user_id:
+              raise LookupError("AGX_STAKE_NOT_FOUND")
+          if record.status != "ACTIVE":
+              raise ValueError("AGX_STAKE_NOT_ACTIVE")
+          if record.locked_until > now_utc():
+              raise ValueError("AGX_STAKE_LOCKED")
+          record.status = "COOLDOWN"
+          cooldown = AgxUnstakeCooldown(
+              stake_id=record.id, user_id=user_id, amount=record.amount, status="PENDING"
+          )
+          session.add(cooldown)
+          await session.flush()
+          _ledger(session, user_id, "UNSTAKE_COOLDOWN", record.amount, record.amount, cooldown.id)
+          return cooldown
+
+      async def withdraw(session, user_id, cooldown_id):
+          cooldown = await session.get(AgxUnstakeCooldown, cooldown_id, with_for_update=True)
+          if cooldown is None or cooldown.user_id != user_id:
+              raise LookupError("AGX_COOLDOWN_NOT_FOUND")
+          if cooldown.status != "PENDING":
+              raise ValueError("AGX_COOLDOWN_NOT_PENDING")
+          if cooldown.cooldown_until > now_utc():
+              raise ValueError("AGX_COOLDOWN_ACTIVE")
+          row = await get_balance(session, user_id, for_update=True)
+          cooldown.status = "COMPLETED"
+          row.staked_balance = Decimal(row.staked_balance) - Decimal(cooldown.amount)
+          row.balance = Decimal(row.balance) + Decimal(cooldown.amount)
+          _ledger(session, user_id, "WITHDRAW_STAKE", cooldown.amount, row.balance, cooldown.id)
+          return cooldown
+
+      async def stake_dispute(session, user_id, market_id, amount):
+          existing = (
+              await session.execute(
+                  select(AgxDisputeStake).where(
+                      AgxDisputeStake.user_id == user_id,
+                      AgxDisputeStake.market_id == market_id,
+                      AgxDisputeStake.status == "LOCKED",
+                  )
+              )
+          ).scalar_one_or_none()
+          if existing is not None:
+              raise ValueError("AGX_DISPUTE_EXISTS")
+          row = await get_balance(session, user_id, for_update=True)
+          if Decimal(row.balance) < q18(amount):
+              raise ValueError("AGX_INSUFFICIENT_BALANCE")
+          row.balance = Decimal(row.balance) - q18(amount)
+          row.locked_dispute_balance = Decimal(row.locked_dispute_balance) + q18(amount)
+          bond = AgxDisputeStake(user_id=user_id, market_id=market_id, amount=q18(amount), status="LOCKED")
+          session.add(bond)
+          await session.flush()
+          _ledger(session, user_id, "DISPUTE_LOCK", bond.amount, row.balance, bond.id)
+          return bond
+
+      async def resolve_dispute(session, dispute_id, upheld: bool):
+          bond = await session.get(AgxDisputeStake, dispute_id, with_for_update=True)
+          if bond is None or bond.status != "LOCKED":
+              raise ValueError("AGX_DISPUTE_NOT_LOCKED")
+          row = await get_balance(session, bond.user_id, for_update=True)
+          row.locked_dispute_balance = Decimal(row.locked_dispute_balance) - Decimal(bond.amount)
+          if upheld:
+              bonus = q18(Decimal(bond.amount) * Decimal("0.20"))
+              row.balance = Decimal(row.balance) + Decimal(bond.amount) + bonus
+              bond.status = "RETURNED"
+              _ledger(session, bond.user_id, "DISPUTE_RETURN", bond.amount, row.balance, bond.id)
+              _ledger(session, bond.user_id, "DISPUTE_REWARD", bonus, row.balance, bond.id)
+          else:
+              bond.status = "SLASHED"
+              _ledger(session, bond.user_id, "SLASH", bond.amount, row.balance, bond.id)
+          return bond
+
+      async def lock_desk_gating(session, user_id, desk_id, amount):
+          return await _lock_gating(session, user_id, desk_id, "DESK", amount)
+
+      async def release_desk_gating(session, user_id, desk_id):
+          return await _release_gating(session, user_id, desk_id, "DESK")
+
+      async def lock_market_gating(session, user_id, market_id, amount):
+          return await _lock_gating(session, user_id, market_id, "MARKET", amount)
+
+      async def release_market_gating(session, user_id, market_id):
+          return await _release_gating(session, user_id, market_id, "MARKET")
+
+      async def sync_balance(session, user_id, verified_deposit):
+          row = await get_balance(session, user_id, for_update=True)
+          delta = q18(verified_deposit)
+          if delta <= 0:
+              return row
+          row.balance = Decimal(row.balance) + delta
+          _ledger(session, user_id, "DEPOSIT", delta, row.balance, "onchain-sync")
+          return row
+
+      async def distribute_epoch(session, epoch_number=None):
+          epoch = AgxRewardEpoch(epoch_number=epoch_number or next_epoch_number(), distributed=False)
+          session.add(epoch)
+          await session.flush()
+          if epoch.distributed:
+              raise ValueError("AGX_EPOCH_ALREADY_DISTRIBUTED")
+          total = q18(epoch.total_fees_collected)
+          staker_pool = q18(total * Decimal("0.60"))
+          epoch.reward_per_token = (
+              q18(staker_pool / Decimal(epoch.total_staked_supply))
+              if Decimal(epoch.total_staked_supply) > 0
+              else Decimal(0)
+          )
+          epoch.distributed = True
+          return epoch
+
+      async def claim_rewards(session, user_id):
+          row = await get_balance(session, user_id, for_update=True)
+          amount = q18(row.pending_rewards)
+          if amount <= 0:
+              return Decimal(0)
+          row.pending_rewards = Decimal(0)
+          row.balance = Decimal(row.balance) + amount
+          _ledger(session, user_id, "FEE_REWARD", amount, row.balance, "claim")
+          return amount
+    acceptance_criteria:
+      - test: "Every contracted function exists"
+        steps: "Assert all fifteen names resolve from app.services.agx and that amounts are Decimal at the boundary"
+      - test: "Ledger invariant holds"
+        steps: "After stake, unstake, withdraw, dispute and claim calls assert the sum of the user's signed ledger amounts equals the spendable balance and that every row carries the correct balance_after"
+    verification:
+      type: file_exists
+      path: "app/services/agx.py"
+      expect:
+        exists: true
+        content_contains: "apply_fee_discount"
+  - id: L4
+    description: "MODIFY: hook the taker-fee discount into app/engine/clob.py without touching the matching loop"
+    type: create
+    blueprint: |
+      # Delta to the existing MatchingEngine._execute_fill. Keep the parabolic
+      # compute_fee base, then apply the AGX discount to the taker fee only.
+      from app.services import agx
+
+      base_taker_fee = compute_fee(qty, fee_rate, fill_price)
+      taker_fee = await agx.apply_fee_discount(taker.user_id, base_taker_fee, session=session)
+      maker_fee = compute_fee(qty, fee_rate, fill_price)
+    acceptance_criteria:
+      - test: "Base fee is preserved for Tier 0"
+        steps: "Assert a zero-AGX taker pays exactly the pre-change parabolic fee for the same shares, price and category"
+      - test: "Discount is taker-only"
+        steps: "Assert a Tier 3 taker pays 85 percent of the base fee while the maker fee is unchanged"
+    verification:
+      type: file_exists
+      path: "app/engine/clob.py"
+      expect:
+        exists: true
+        content_contains: "apply_fee_discount"
+  - id: L5
+    description: "MODIFY: extend the AGX router in app/api/v1/agx.py with all fourteen contracted routes"
+    type: modify
+    blueprint: |
+      # Additive route delta on the existing ``router`` object. Amounts arrive
+      # as decimal strings and are parsed with agx.parse_amount; domain errors
+      # raise AgxError and are mapped by the handler registered in app/main.py.
+      from fastapi import Depends
+      from pydantic import BaseModel, StrictStr
+
+      from app.api.deps import get_current_user
+      from app.db.session import get_async_session
+      from app.services import agx
+
+      class AmountBody(BaseModel):
+          amount: StrictStr
+
+      @router.post("/stake", status_code=201)
+      async def stake_agx(body: AmountBody, user=Depends(get_current_user), session=Depends(get_async_session)):
+          record = await agx.stake(session, user.id, agx.parse_amount(body.amount))
+          return {
+              "status": record.status,
+              "stake": _stake_payload(record),
+              "balance": _balance_payload(await agx.get_balance(session, user.id)),
+          }
+
+      # Also add: POST /unstake, POST /withdraw, GET /balance, GET /stakes,
+      # POST /claim-rewards, GET /rewards/history, GET /tiers (public),
+      # POST /dispute-stake, GET /dispute-stakes, POST /sync-balance (admin),
+      # GET /stats (public), POST /epochs/distribute (admin), GET /epochs
+      # (public). Every authenticated route depends on get_current_user and
+      # get_async_session; admin routes additionally require user.is_admin and
+      # return 403 AGX_FORBIDDEN otherwise.
+    acceptance_criteria:
+      - test: "All routes resolve"
+        steps: "Assert each method and path in the spec endpoints list resolves and unauthenticated calls return 401"
+      - test: "Ownership is enforced"
+        steps: "Assert reading another user's stakes or dispute bonds returns 403 and an unknown id returns 404"
+    verification:
+      type: file_exists
+      path: "app/api/v1/agx.py"
+      expect:
+        exists: true
+        content_contains: "router = APIRouter"
+  - id: L6
+    description: "MODIFY: mount the AGX router in app/main.py beside the existing include_router calls"
+    type: create
+    blueprint: |
+      # Delta to the existing app/main.py.
+      from app.api.v1 import agx as agx_router
+
+      app.include_router(agx_router.router)
+    acceptance_criteria:
+      - test: "Mounting is additive"
+        steps: "Assert every endpoint in .githeri/baseline.json still resolves after the router is mounted"
+    verification:
+      type: file_exists
+      path: "app/main.py"
+      expect:
+        exists: true
+        content_contains: "agx_router"
+  - id: L7
+    description: "MODIFY: enforce the 500 AGX activation bond inside the existing Pro Desk creation route in app/api/v1/desks.py"
+    type: create
+    blueprint: |
+      # Delta to the existing POST /api/v1/desks handler in app/api/v1/desks.py.
+      # Resolve the caller's gating bond before the desk row is committed.
+      from app.services import agx
+
+      async def _require_desk_bond(session, user):
+          balance = await agx.get_balance(session, user.id)
+          if balance.locked_gating_balance < Decimal("500"):
+              raise HTTPException(status_code=409, detail="AGX_INSUFFICIENT_GATE")
+    acceptance_criteria:
+      - test: "Desk gating is enforced"
+        steps: "Assert a caller with 499.999999999999999999 locked receives 409 AGX_INSUFFICIENT_GATE and a caller with 500 receives 201"
+      - test: "Existing desk behavior is preserved"
+        steps: "Assert desk naming, ownership uniqueness and lifecycle responses are unchanged for a bonded caller"
+    verification:
+      type: file_exists
+      path: "app/api/v1/desks.py"
+      expect:
+        exists: true
+        content_contains: "AGX_INSUFFICIENT_GATE"
+  - id: L8
+    description: "CREATE: the AGX staking dashboard at frontend/src/pages/AgxStakingPage.tsx wired into the existing hash router"
+    type: create
+    blueprint: |
+      // frontend/src/pages/AgxStakingPage.tsx, mounted at route /agx in
+      // frontend/src/App.tsx and the navigation header. Read every figure from
+      // the typed api client; no mock arrays, no hardcoded localhost URLs.
+      // Render tier badge, staked balance, unlock countdown, cooldown progress,
+      // effective fee discount, accrued rewards and stake/unstake forms, with
+      // loading, empty and error states.
+      import { api } from '../api/client'
+
+      export default function AgxStakingPage() {
+        return <div className="mx-auto max-w-7xl px-6 pb-24" />
+      }
+    acceptance_criteria:
+      - test: "Page is wired to the API"
+        steps: "Confirm no mock data array and no localhost URL remain, and that loading, empty and error paths render"
+      - test: "Route is reachable"
+        steps: "Confirm /agx is registered in frontend/src/App.tsx and appears in the navigation header"
+    verification:
+      type: file_exists
+      path: "frontend/src/pages/AgxStakingPage.tsx"
+      expect:
+        exists: true
+        content_contains: "AgxStakingPage"
+  - id: L9
+    description: "MODIFY: extend frontend/src/api/client.ts with typed methods for every AGX route and surface the discount in the trade ticket and portfolio"
+    type: create
+    blueprint: |
+      // Delta to the existing frontend/src/api/client.ts. Add domain types
+      // (AgxBalance, AgxStake, AgxDisputeStake, AgxRewardEpoch) and client
+      // methods for /api/v1/agx/*. Then show the applied tier discount in
+      // frontend/src/components/TradeTicket.tsx and the AGX balance plus tier
+      // in frontend/src/pages/PortfolioPage.tsx. Amounts stay decimal strings.
+      export interface AgxBalance {
+        balance: string
+        staked_balance: string
+        locked_gating_balance: string
+        locked_dispute_balance: string
+        pending_rewards: string
+        tier: string
+        discount: string
+      }
+    acceptance_criteria:
+      - test: "Client is typed and complete"
+        steps: "Assert every AGX route has a typed client method and that no `any` is introduced for AGX payloads"
+      - test: "Frontend builds"
+        steps: "Run npm --prefix frontend run build and assert exit code 0 with no TypeScript errors"
+    verification:
+      type: file_exists
+      path: "frontend/src/api/client.ts"
+      expect:
+        exists: true
+        content_contains: "AgxBalance"
+  - id: L10
+    description: "VERIFY: staking lifecycle, lock enforcement, cooldown enforcement and balance integrity"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_staking.py"
+      expect:
+        exit_code: 0
+  - id: L11
+    description: "VERIFY: dispute bonds, duplicate rejection, upheld bonus and slashing to treasury"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_disputes.py"
+      expect:
+        exit_code: 0
+  - id: L12
+    description: "VERIFY: epoch split, proportional rewards, idempotent duplicate rejection and claiming"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_rewards.py"
+      expect:
+        exit_code: 0
+  - id: L13
+    description: "VERIFY: gating thresholds and tier discounts applied to real CLOB taker orders"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_gating.py"
+      expect:
+        exit_code: 0
+  - id: L14
+    description: "VERIFY: REST surface for every AGX route including authorization and validation boundaries"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_api.py"
+      expect:
+        exit_code: 0
+  - id: L15
+    description: "VERIFY: zero-token regression proves AGX is never a hard dependency"
+    type: verify
+    acceptance_criteria:
+      - test: "Zero-AGX trading is untouched"
+        steps: "Assert deposit, order placement, fill, withdrawal and payout redemption all succeed at unchanged base fees with no AgxBalance row"
+    verification:
+      type: cli
+      command: "pytest tests/test_agx_zero_token_regression.py"
+      expect:
+        exit_code: 0
+  - id: L16
+    description: "VERIFY: the change is additive, not a rewrite"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/test_route_baseline.py"
+      expect:
+        exit_code: 0
+  - id: L17
+    description: "VERIFY: full backend regression suite"
+    type: verify
+    verification:
+      type: cli
+      command: "pytest tests/"
+      expect:
+        exit_code: 0
+  - id: L18
+    description: "VERIFY: frontend production build"
+    type: verify
+    verification:
+      type: cli
+      command: "npm --prefix frontend run build"
+      expect:
+        exit_code: 0
+  - id: L19
+    description: "VERIFY: failure boundaries return deterministic 4xx codes instead of silently mutating balances"
+    type: verify
+    acceptance_criteria:
+      - test: "Lock, cooldown and duplicate violations are rejected"
+        steps: "Assert unstaking before locked_until returns 422 AGX_STAKE_LOCKED, withdrawing before cooldown_until returns 422 AGX_COOLDOWN_ACTIVE, staking above spendable balance returns 409 AGX_INSUFFICIENT_BALANCE, and a duplicate epoch distribution returns 409 AGX_EPOCH_ALREADY_DISTRIBUTED"
+    verification:
+      type: http
+      method: POST
+      url: "http://localhost:8000/api/v1/agx/unstake"
+      expect:
+        status: 422
 context:
   language: Python
   framework: FastAPI
+  orm: SQLAlchemy
   test_framework: pytest
+  frontend: "Vite + React + TypeScript + Tailwind v4 + lucide-react"

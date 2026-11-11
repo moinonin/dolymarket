@@ -385,6 +385,27 @@ class MatchingEngine:
         fee_rate = fee_rate_for_category(category)
         maker_fee = compute_fee(qty, fee_rate, fill_price)
         taker_fee = compute_fee(qty, fee_rate, fill_price)
+        # AGX is a purely complementary discount: the taker fee is reduced by
+        # the caller's staking tier, while the maker fee and the matching loop
+        # stay untouched. Every failure path falls back to the base fee so a
+        # missing or unavailable AGX layer can never block a fill.
+        try:
+            from app.services import agx as agx_service
+
+            taker_fee = await agx_service.apply_fee_discount(
+                taker.user_id, taker_fee, session=session
+            )
+        except Exception:  # pragma: no cover - AGX must never block trading
+            taker_fee = compute_fee(qty, fee_rate, fill_price)
+        try:
+            from app.services import agx as agx_service
+
+            # Fee revenue accrues to the open 24-hour reward epoch. A savepoint
+            # keeps accounting failures from poisoning the fill transaction.
+            async with session.begin_nested():
+                await agx_service.record_fee(session, taker_fee + maker_fee)
+        except Exception:  # pragma: no cover - accounting is best effort here
+            pass
         sequence_id = next_sequence_id()
 
         fill = TradeFill(

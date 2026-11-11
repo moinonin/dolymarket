@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   CircleDollarSign,
   Clock,
+  Coins,
   Fingerprint,
   KeyRound,
   Loader2,
@@ -16,6 +17,7 @@ import {
 import { startRegistration } from '@simplewebauthn/browser'
 import {
   api,
+  type AgxBalance,
   type Balance,
   type LedgerEntry,
   type Order,
@@ -39,10 +41,26 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'security', label: 'Security' },
 ]
 
-export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: string) => void }) {
+/** Display-only trimming of a backend decimal string; never used for math. */
+function formatAgx(value: string | null | undefined, maxFrac = 4): string {
+  if (!value) return '0'
+  const [whole, frac = ''] = value.split('.')
+  const trimmed = frac.replace(/0+$/, '')
+  const shown = trimmed.slice(0, maxFrac).replace(/0+$/, '')
+  return shown ? `${whole}.${shown}` : whole
+}
+
+export default function PortfolioPage({
+  onOpenEvent,
+  onNavigate,
+}: {
+  onOpenEvent: (slug: string) => void
+  onNavigate: (to: string) => void
+}) {
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>('positions')
   const [balance, setBalance] = useState<Balance | null>(null)
+  const [agx, setAgx] = useState<AgxBalance | null>(null)
   const [positions, setPositions] = useState<Position[] | null>(null)
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [tradeFills, setTradeFills] = useState<any[] | null>(null)
@@ -57,16 +75,18 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
     if (!user) return
     setLoading(true)
     try {
-      const [bal, pos, ord, led] = await Promise.all([
+      const [bal, pos, ord, led, agxBal] = await Promise.all([
         api.getBalance(),
         api.listPositions().catch(() => ({ positions: [] })),
         api.listOrders({ limit: 100 }).catch(() => ({ orders: [] })),
         api.getLedger().catch(() => ({ entries: [] })),
+        api.getAgxBalance().catch(() => null),
       ])
       setBalance(bal)
       setPositions(pos.positions)
       setOrders(ord.orders)
       setLedger(led.entries)
+      setAgx(agxBal)
       // Execution history: all orders that have fills.
       const filled = ord.orders.filter((o) => o.filled_amount > 0)
       setTradeFills(filled)
@@ -154,6 +174,56 @@ export default function PortfolioPage({ onOpenEvent }: { onOpenEvent: (slug: str
           label="Open Orders"
           value={loading ? null : `${activeOrders.length}`}
         />
+      </div>
+
+      {/* AGX utility token strip */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-2">
+            <Coins className="h-4 w-4 text-amber-400" />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">
+              AGX Utility Token
+            </p>
+            {loading && !agx ? (
+              <Skeleton className="mt-1 h-4 w-40" />
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-white">
+                <span className="font-mono">{formatAgx(agx?.balance)} AGX</span>
+                <span className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                  {agx?.tier_name ?? 'None'} · Tier {agx?.tier ?? '0'}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-slate-400">
+          <span>
+            Staked{' '}
+            <span className="font-mono text-slate-200">
+              {formatAgx(agx?.staked_balance)}
+            </span>
+          </span>
+          <span>
+            Pending rewards{' '}
+            <span className="font-mono text-emerald-400">
+              {formatAgx(agx?.pending_rewards)}
+            </span>
+          </span>
+          <span>
+            Taker discount{' '}
+            <span className="font-mono text-slate-200">
+              {(Number(agx?.discount_rate ?? 0) * 100).toFixed(1)}%
+            </span>
+          </span>
+          <button
+            onClick={() => onNavigate('agx')}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-500/40 hover:text-amber-300"
+          >
+            Manage staking →
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

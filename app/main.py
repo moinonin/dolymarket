@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1 import auth as auth_router
+from app.api.v1 import agx as agx_router
 from app.api.v1 import collateral as collateral_router
 from app.api.v1 import desks as desks_router
 from app.api.v1 import oauth as oauth_router
@@ -37,6 +38,7 @@ from app.core.ratelimit import (
     rate_limiter,
 )
 from app.db.session import AsyncSessionLocal, init_db
+from app.services.agx import AgxError
 
 ORDER_MUTATION_PREFIX = "/api/v4/prediction/orders"
 PUBLIC_READ_PREFIX = "/api/v4/prediction/"
@@ -119,7 +121,15 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 
+
+@app.exception_handler(AgxError)
+async def _agx_error_handler(request: Request, exc: AgxError) -> JSONResponse:
+    """Map AGX domain failures onto their stable HTTP status and error code."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
+
+
 app.include_router(auth_router.router)
+app.include_router(agx_router.router)
 app.include_router(collateral_router.router)
 app.include_router(desks_router.router)
 app.include_router(oauth_router.router)

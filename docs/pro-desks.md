@@ -11,7 +11,7 @@ and mirror the desk's fills proportionally into their own accounts.
 - Anti front-running: an operator may not place a personal order in a market
   where their desk holds a position.
 
-See `docs/prediction-vault-prompt.md` for the full contract.
+See `predmarket/prompts/prediction-vault-prompt.md` for the full contract.
 
 ## Review and audit
 

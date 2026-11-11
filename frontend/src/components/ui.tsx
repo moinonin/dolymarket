@@ -95,23 +95,39 @@ export function FeePreview({
   shares,
   price,
   feeRate,
+  discountRate = 0,
 }: {
   shares: number | ''
   price: number | ''
   feeRate: number
+  discountRate?: number
 }) {
   const c = Number(shares || 0)
   const p = Number(price || 0)
   const fee =
     c > 0 && p > 0 && p < 1 ? c * feeRate * p * (1 - p) : 0
+  const discounted = fee * (1 - Math.max(0, Math.min(1, discountRate)))
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
-      <span className="text-slate-400">
-        Est. fee <span className="text-slate-600">· C × feeRate × p × (1−p)</span>
-      </span>
-      <span className="font-mono font-medium text-amber-400">
-        ${fee ? fee.toFixed(4) : '0.0000'}
-      </span>
+    <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="text-slate-400">
+          Est. {discountRate > 0 ? 'taker ' : ''}fee{' '}
+          <span className="text-slate-600">· C × feeRate × p × (1−p)</span>
+        </span>
+        <span className="flex items-baseline gap-1.5 font-mono font-medium text-amber-400">
+          {discountRate > 0 && (
+            <span className="text-[10px] text-slate-600 line-through">
+              ${fee.toFixed(4)}
+            </span>
+          )}
+          ${discounted.toFixed(4)}
+        </span>
+      </div>
+      {discountRate > 0 && (
+        <p className="mt-1 text-[10px] text-emerald-400">
+          AGX staking discount applied: {(discountRate * 100).toFixed(1)}% off taker fees
+        </p>
+      )}
     </div>
   )
 }

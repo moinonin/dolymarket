@@ -54,6 +54,4 @@ nav:
   - FAQ: faq.md
   - Engineering:
     - Improvement plan: improve.md
-    - Pro Desks prompt: prediction-vault-prompt.md
-    - DexBuilder integration prompt: dexbuilder-integration-prompt.md
     - DexBuilder TODO: dexbuilder-todo.md

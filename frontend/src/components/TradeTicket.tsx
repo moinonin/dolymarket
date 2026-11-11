@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { api, type Market, type OutcomeToken } from '../api/client'
+import { api, type AgxBalance, type Market, type OutcomeToken } from '../api/client'
 import {
   addPendingOrder,
   confirmPendingOrder,
@@ -42,7 +42,31 @@ export default function TradeTicket({
   const [tif, setTif] = useState<(typeof TIFS)[number]>('GTC')
   const [postOnly, setPostOnly] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [agx, setAgx] = useState<AgxBalance | null>(null)
   const submitRef = useRef<() => void>(() => {})
+
+  // The AGX tier is advisory UI only: it previews the taker discount the
+  // backend applies. A missing balance row or failed read simply shows nothing.
+  useEffect(() => {
+    if (!user) {
+      setAgx(null)
+      return
+    }
+    let cancelled = false
+    api
+      .getAgxBalance()
+      .then((row) => {
+        if (!cancelled) setAgx(row)
+      })
+      .catch(() => {
+        if (!cancelled) setAgx(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  const agxDiscount = Number(agx?.discount_rate ?? 0)
 
   // Auto-fill limit price with the visible opposite side.
   useEffect(() => {
@@ -310,7 +334,23 @@ export default function TradeTicket({
           </label>
         )}
 
-        <FeePreview shares={amountNum || 0} price={priceNum || 0} feeRate={feeRate} />
+        {agx && agxDiscount > 0 && (
+          <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-300">
+            <span>
+              AGX {agx.tier_name} · Tier {agx.tier}
+            </span>
+            <span className="font-mono">
+              {(agxDiscount * 100).toFixed(1)}% off taker fees
+            </span>
+          </div>
+        )}
+
+        <FeePreview
+          shares={amountNum || 0}
+          price={priceNum || 0}
+          feeRate={feeRate}
+          discountRate={agxDiscount}
+        />
       </div>
 
       {warnings.length > 0 && (

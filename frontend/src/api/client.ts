@@ -319,6 +319,103 @@ export interface TradeTicketInput {
 }
 
 // ---------------------------------------------------------------------------
+// AGX (Algoxen) utility token
+//
+// Every amount crosses the wire as a decimal string; the UI only formats these
+// strings for display and never does token arithmetic in binary floating point.
+// ---------------------------------------------------------------------------
+
+export interface AgxBalance {
+  user_id: string;
+  balance: string;
+  staked_balance: string;
+  locked_gating_balance: string;
+  locked_dispute_balance: string;
+  pending_rewards: string;
+  last_reward_epoch: string | null;
+  tier: string;
+  tier_name: string;
+  discount_rate: string;
+  updated_at: string | null;
+}
+
+export interface AgxStake {
+  id: string;
+  amount: string;
+  status: string;
+  locked_until: string;
+  created_at: string | null;
+}
+
+export interface AgxCooldown {
+  id: string;
+  stake_id: string;
+  amount: string;
+  status: string;
+  cooldown_until: string;
+  created_at: string | null;
+}
+
+export interface AgxDisputeStake {
+  id: string;
+  market_id: string;
+  amount: string;
+  status: string;
+  created_at: string | null;
+  resolved_at: string | null;
+  treasury_address: string;
+}
+
+export interface AgxRewardEpoch {
+  id: string;
+  epoch_number: number;
+  total_fees_collected: string;
+  total_staked_supply: string;
+  reward_per_token: string;
+  creator_share: string;
+  staker_pool: string;
+  creator_accruals: Record<string, string>;
+  started_at: string | null;
+  ended_at: string | null;
+  distributed: boolean;
+}
+
+export interface AgxRewardEntry {
+  id: string;
+  amount: string;
+  balance_after: string;
+  reference_id: string | null;
+  created_at: string | null;
+}
+
+export interface AgxTier {
+  tier: string;
+  name: string;
+  min_staked: string;
+  discount_rate: string;
+}
+
+export interface AgxTiersResponse {
+  tiers: AgxTier[];
+  total_staked: string;
+  staker_count: number;
+}
+
+export interface AgxStats {
+  chain_id: number;
+  token_symbol: string;
+  token_decimals: number;
+  treasury_address: string;
+  total_staked: string;
+  total_spendable: string;
+  total_gating_locked: string;
+  total_dispute_locked: string;
+  staker_count: number;
+  epoch_count: number;
+  distributed_staker_pool: string;
+}
+
+// ---------------------------------------------------------------------------
 // Token storage
 // ---------------------------------------------------------------------------
 
@@ -924,6 +1021,97 @@ export class ApiClient {
     neg_risk?: boolean;
   }): Promise<any> {
     return this.request('/api/v4/prediction/admin/markets', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  // ---- AGX utility token ----------------------------------------------------
+
+  getAgxBalance(): Promise<AgxBalance> {
+    return this.request('/api/v1/agx/balance');
+  }
+
+  getAgxStakes(): Promise<{ stakes: AgxStake[]; cooldowns: AgxCooldown[] }> {
+    return this.request('/api/v1/agx/stakes');
+  }
+
+  stakeAgx(amount: string): Promise<{ status: string; stake: AgxStake; balance: AgxBalance }> {
+    return this.request('/api/v1/agx/stake', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  }
+
+  unstakeAgx(stakeId: string): Promise<{
+    status: string;
+    cooldown: AgxCooldown;
+    balance: AgxBalance;
+  }> {
+    return this.request('/api/v1/agx/unstake', {
+      method: 'POST',
+      body: JSON.stringify({ stake_id: stakeId }),
+    });
+  }
+
+  withdrawAgx(cooldownId: string): Promise<{
+    status: string;
+    amount: string;
+    balance: AgxBalance;
+  }> {
+    return this.request('/api/v1/agx/withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ cooldown_id: cooldownId }),
+    });
+  }
+
+  claimAgxRewards(): Promise<{ claimed: string; balance: AgxBalance }> {
+    return this.request('/api/v1/agx/claim-rewards', { method: 'POST' });
+  }
+
+  getAgxRewardHistory(): Promise<{ rewards: AgxRewardEntry[]; total: string }> {
+    return this.request('/api/v1/agx/rewards/history');
+  }
+
+  getAgxTiers(): Promise<AgxTiersResponse> {
+    return this.request('/api/v1/agx/tiers', {}, false);
+  }
+
+  getAgxStats(): Promise<AgxStats> {
+    return this.request('/api/v1/agx/stats', {}, false);
+  }
+
+  getAgxEpochs(limit = 50): Promise<{ epochs: AgxRewardEpoch[] }> {
+    return this.request(`/api/v1/agx/epochs?limit=${limit}`, {}, false);
+  }
+
+  listAgxDisputeStakes(): Promise<{ disputes: AgxDisputeStake[] }> {
+    return this.request('/api/v1/agx/dispute-stakes');
+  }
+
+  stakeAgxDispute(
+    marketId: string,
+    amount?: string
+  ): Promise<{ dispute: AgxDisputeStake; balance: AgxBalance }> {
+    return this.request('/api/v1/agx/dispute-stake', {
+      method: 'POST',
+      body: JSON.stringify({ market_id: marketId, amount: amount ?? null }),
+    });
+  }
+
+  /** Admin-only: attest a verified on-chain AGX balance for the caller. */
+  syncAgxBalance(verifiedBalance: string): Promise<{ credited: string; balance: AgxBalance }> {
+    return this.request('/api/v1/agx/sync-balance', {
+      method: 'POST',
+      body: JSON.stringify({ verified_balance: verifiedBalance }),
+    });
+  }
+
+  /** Admin-only: close and distribute a reward epoch. */
+  distributeAgxEpoch(
+    body: { epoch_number?: number; total_fees_collected?: string } = {}
+  ): Promise<{ epoch: AgxRewardEpoch; rewarded_stakers: number }> {
+    return this.request('/api/v1/agx/epochs/distribute', {
       method: 'POST',
       body: JSON.stringify(body),
     });
