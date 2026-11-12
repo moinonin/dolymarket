@@ -10,14 +10,13 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "sqlite+aiosqlite:///:memory:"
+    "DATABASE_URL", "sqlite+aiosqlite:///./dolymarket.db"
 )
 
 _engine_kwargs: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _engine_kwargs["poolclass"] = StaticPool
-    if ":memory:" in DATABASE_URL:
-        _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
 
 engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 

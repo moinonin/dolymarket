@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CheckCircle2,
   CircleDollarSign,
   Clock,
   Coins,
@@ -28,6 +29,8 @@ import { useAuth } from '../auth/AuthProvider'
 import { Skeleton, StatusPill } from '../components/ui'
 import { subscribePendingOrders } from '../api/optimisticOrders'
 import { useToast } from '../context/toast'
+import { useWallet } from '../context/WalletContext'
+import { WalletConnectModal } from '../components/WalletConnectModal'
 import CashLedgerModal from '../components/CashLedgerModal'
 
 type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger' | 'security'
@@ -58,6 +61,8 @@ export default function PortfolioPage({
   onNavigate: (to: string) => void
 }) {
   const { user } = useAuth()
+  const { address: walletAddress, chainName, dexBuilderSynced } = useWallet()
+  const [walletModalOpen, setWalletModalOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('positions')
   const [balance, setBalance] = useState<Balance | null>(null)
   const [agx, setAgx] = useState<AgxBalance | null>(null)
@@ -226,6 +231,54 @@ export default function PortfolioPage({
         </div>
       </div>
 
+      {/* Web3 Non-Custodial Wallet Strip */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2">
+            <Wallet className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">
+              Non-Custodial Web3 Wallet
+            </p>
+            {walletAddress ? (
+              <p className="flex items-center gap-2 text-sm text-white">
+                <span className="font-mono">{walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}</span>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                  {chainName}
+                </span>
+                {dexBuilderSynced && (
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
+                    <CheckCircle2 className="h-3 w-3" /> DexBuilder Linked
+                  </span>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                No external crypto wallet connected.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {walletAddress ? (
+            <button
+              onClick={() => setWalletModalOpen(true)}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-emerald-500/40 hover:text-white"
+            >
+              Wallet settings
+            </button>
+          ) : (
+            <button
+              onClick={() => setWalletModalOpen(true)}
+              className="rounded-lg bg-emerald-500 px-3 py-1.5 text-[11px] font-bold text-slate-950 transition hover:bg-emerald-400"
+            >
+              Connect Web3 Wallet
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="mt-8 flex flex-wrap gap-1.5 border-b border-slate-800 pb-0 sm:flex-nowrap sm:overflow-x-auto">
         {TABS.map((t) => (
@@ -274,6 +327,10 @@ export default function PortfolioPage({
           }}
         />
       )}
+      <WalletConnectModal
+        isOpen={walletModalOpen}
+        onClose={() => setWalletModalOpen(false)}
+      />
     </div>
   )
 }

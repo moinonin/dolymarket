@@ -168,3 +168,62 @@ async def test_multi_user_isolation(api: AsyncClient):
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "CANCELLED"
+
+
+async def test_wallet_siwe_authentication(api: AsyncClient):
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    acct = Account.create()
+    wallet_addr = acct.address
+
+    # 1. Request challenge
+    resp = await api.post(
+        "/api/v1/auth/wallet/challenge",
+        json={"address": wallet_addr, "chain_id": 8453},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    challenge = data["challenge"]
+    nonce = data["nonce"]
+    assert wallet_addr in challenge
+    assert nonce in challenge
+
+    # 2. Sign challenge message
+    msg = encode_defunct(text=challenge)
+    sig = acct.sign_message(msg).signature.hex()
+
+    # 3. Bad signature rejected
+    bad_resp = await api.post(
+        "/api/v1/auth/wallet/verify",
+        json={
+            "address": wallet_addr,
+            "signature": "0x" + "a" * 130,
+            "nonce": nonce,
+        },
+    )
+    assert bad_resp.status_code == 400
+
+    # 4. Valid signature succeeds and returns token
+    auth_resp = await api.post(
+        "/api/v1/auth/wallet/verify",
+        json={
+            "address": wallet_addr,
+            "signature": sig,
+            "nonce": nonce,
+        },
+    )
+    assert auth_resp.status_code == 200, auth_resp.text
+    token_data = auth_resp.json()
+    assert token_data["access_token"]
+    assert token_data["user"]["dexbuilder_wallet"] == wallet_addr.lower()
+
+    # 5. Token works for authenticated calls
+    headers = {"Authorization": f"Bearer {token_data['access_token']}"}
+    me_resp = await api.get("/api/v1/auth/me", headers=headers)
+    assert me_resp.status_code == 200
+    assert me_resp.json()["dexbuilder_wallet"] == wallet_addr.lower()
+
+    bal_resp = await api.get("/api/v1/collateral/balance", headers=headers)
+    assert bal_resp.status_code == 200
+    assert bal_resp.json()["balance"] == 0.0

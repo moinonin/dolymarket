@@ -336,6 +336,19 @@ class AuthExchangeCode(Base):
     created_at = Column(DateTime(timezone=True), default=_now_utc)
 
 
+class WalletChallenge(Base):
+    """Short-lived challenge for Sign-In with Ethereum (SIWE)."""
+
+    __tablename__ = "wallet_challenges"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    address = Column(String(128), nullable=False, index=True)
+    nonce = Column(String(64), unique=True, nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+
+
 class Desk(Base):
     __tablename__ = "desks"
     __table_args__ = (UniqueConstraint("owner_user_id", name="uq_desk_owner"),)

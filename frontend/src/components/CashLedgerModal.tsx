@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Wallet } from 'lucide-react'
 import { api } from '../api/client'
 import { useToast } from '../context/toast'
+import { useWallet } from '../context/WalletContext'
 
 export default function CashLedgerModal({
   mode,
@@ -15,6 +16,7 @@ export default function CashLedgerModal({
   onChanged: () => void
 }) {
   const { push } = useToast()
+  const { address, chainName, isConnected, connect } = useWallet()
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const amt = parseFloat(amount)
@@ -38,7 +40,7 @@ export default function CashLedgerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+        className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl font-geist-mono"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center gap-2">
@@ -51,6 +53,33 @@ export default function CashLedgerModal({
             {mode === 'deposit' ? 'Deposit USDC' : 'Withdraw USDC'}
           </h2>
         </div>
+
+        {/* Connected Wallet Bar */}
+        <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-[11px]">
+          {isConnected && address ? (
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Wallet className="h-3 w-3 text-emerald-400" />
+                <span>Web3 Source:</span>
+              </span>
+              <span className="font-mono text-emerald-400">
+                {address.slice(0, 6)}...{address.slice(-4)} ({chainName})
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-slate-400">
+              <span>No crypto wallet linked</span>
+              <button
+                type="button"
+                onClick={() => connect('injected')}
+                className="text-emerald-400 hover:text-emerald-300 underline"
+              >
+                Connect Wallet
+              </button>
+            </div>
+          )}
+        </div>
+
         <p className="text-xs text-slate-400">
           {mode === 'withdraw'
             ? `Available to withdraw: $${available.toFixed(2)} (unlocked only)`
@@ -61,7 +90,7 @@ export default function CashLedgerModal({
           onChange={(e) => setAmount(e.target.value)}
           placeholder="100.00"
           inputMode="decimal"
-          className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm outline-none focus:border-blue-500"
+          className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm outline-none focus:border-emerald-500"
         />
         {overdraw && (
           <p className="mt-2 text-xs text-amber-300">⚠ Exceeds available unlocked balance.</p>

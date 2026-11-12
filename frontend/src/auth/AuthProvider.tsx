@@ -14,6 +14,8 @@ import {
 } from '../api/client'
 import AuthProviders, { OAUTH_MESSAGE_TYPE } from './AuthProviders'
 import { useToast } from '../context/toast'
+import { useWallet } from '../context/WalletContext'
+import { Wallet, Fingerprint, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface AuthUser {
   id: string
@@ -26,6 +28,7 @@ interface AuthContextValue {
   openAuth: (mode: 'login' | 'register') => void
   logout: () => void
   refreshUser: () => Promise<void>
+  loginWithWallet: () => Promise<boolean>
   providers: OAuthProviderInfo[]
 }
 
@@ -34,6 +37,7 @@ const AuthContext = createContext<AuthContextValue>({
   openAuth: () => {},
   logout: () => {},
   refreshUser: async () => {},
+  loginWithWallet: async () => false,
   providers: [],
 })
 
@@ -42,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authModal, setAuthModal] = useState<{ mode: 'login' | 'register' } | null>(null)
   const [providers, setProviders] = useState<OAuthProviderInfo[]>([])
   const { push } = useToast()
+  const wallet = useWallet()
 
   const applyToken = useCallback(async () => {
     const token = getStoredToken()
@@ -71,16 +76,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void applyToken()
   }, [applyToken])
 
-  // A 401 from any API call means the token expired or was revoked: the
-  // token is already cleared by the client, so drop the session here too,
-  // otherwise the UI keeps showing a signed-in shell whose every call fails.
+  // A 401 from any API call means the token expired or was revoked.
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null))
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  // Tokens carry a 24h exp: drop an already-expired token at rest instead of
-  // riding it through a doomed round trip per request.
+  // Tokens carry a 24h exp.
   useEffect(() => {
     const token = getStoredToken()
     if (!token) return
@@ -91,70 +93,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
       }
     } catch {
-      /* unparseable token: leave validation to the server */
+      /* unparseable token */
     }
   }, [])
 
-  // Which federated providers this deployment supports.
+  // Auto-sync wallet address to user account when both exist
   useEffect(() => {
-    let cancelled = false
-    api
-      .listAuthProviders()
-      .then((res) => {
-        if (!cancelled) setProviders(res.providers)
+    if (wallet.address && user) {
+      api.setDexBuilderWallet(wallet.address).catch((err) => {
+        console.warn('Could not auto-sync dexbuilder wallet:', err)
       })
-      .catch(() => {
-        if (!cancelled) setProviders([])
-      })
-    return () => {
-      cancelled = true
     }
-  }, [])
+  }, [wallet.address, user?.id])
 
-  // Federated sign-in hand-off: the popup (or this tab) receives a one-time
-  // code, redeems it for a JWT and notifies the opener window.
-  useEffect(() => {
-    async function complete(code: string) {
-      try {
-        const res = await api.oauthExchange(code)
-        setUser({ id: res.user.id, email: res.user.email, is_admin: Boolean(res.user.is_admin) })
-        if (window.opener) {
-          window.opener.postMessage(
-            { type: OAUTH_MESSAGE_TYPE, token: res.access_token, user: res.user },
-            window.location.origin
-          )
-          window.close()
-        }
-      } catch (err: any) {
-        push(err.message || 'Federated sign-in failed', 'error')
+  // Non-custodial Sign-In with Ethereum (SIWE)
+  const loginWithWallet = useCallback(async (): Promise<boolean> => {
+    try {
+      let activeAddr = wallet.address || localStorage.getItem('dolymarket_wallet_addr')
+      if (!activeAddr) {
+        const ok = await wallet.connect('injected')
+        if (!ok) return false
+        activeAddr = localStorage.getItem('dolymarket_wallet_addr')
       }
-    }
+      if (!activeAddr) {
+        throw new Error('No wallet address detected')
+      }
 
-    const params = new URLSearchParams(window.location.search)
-    const code = params.get('oauth_code')
-    if (code) {
-      window.history.replaceState(
-        {},
-        document.title,
-        window.location.pathname + window.location.hash
-      )
-      void complete(code)
-    }
+      const activeChainId = wallet.chainId || 8453
+      push('Requesting wallet sign-in challenge…', 'info')
+      const challengeRes = await api.getWalletChallenge(activeAddr, activeChainId)
 
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return
-      const data = event.data
-      if (data?.type !== OAUTH_MESSAGE_TYPE || !data?.token) return
-      // Never trust a partially-formed payload: a malformed message must be
-      // ignored, not crash the handler.
-      if (!data.user?.id || !data.user?.email) return
-      setStoredToken(data.token)
-      setUser({ id: data.user.id, email: data.user.email, is_admin: Boolean(data.user.is_admin) })
-    }
+      push('Please sign the challenge in your wallet…', 'info')
+      const sig = await wallet.signMessage(challengeRes.challenge)
+      if (!sig) {
+        throw new Error('Signature was rejected or cancelled')
+      }
 
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [push])
+      push('Verifying signature…', 'info')
+      const verifyRes = await api.verifyWalletLogin(activeAddr, sig, challengeRes.nonce)
+
+      setStoredToken(verifyRes.access_token)
+      setUser({
+        id: verifyRes.user.id,
+        email: verifyRes.user.email,
+        is_admin: Boolean(verifyRes.user.is_admin),
+      })
+      push('Signed in with Web3 wallet!', 'info')
+      return true
+    } catch (err: any) {
+      push(err.message || 'Wallet sign-in failed', 'error')
+      return false
+    }
+  }, [wallet, push])
 
   const userRef = {
     user,
@@ -164,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null)
     },
     refreshUser,
+    loginWithWallet,
     providers,
   }
 
@@ -173,7 +164,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {authModal && (
         <AuthModal
           mode={authModal.mode}
-          providers={providers}
           onClose={() => setAuthModal(null)}
           onAuthed={async (u) => {
             setUser({ id: u.id, email: u.email, is_admin: Boolean(u.is_admin) })
@@ -191,14 +181,17 @@ export function useAuth() {
 
 interface AuthModalProps {
   mode: 'login' | 'register'
-  providers: OAuthProviderInfo[]
   onClose: () => void
   onAuthed: (user: { id: string; email: string; is_admin?: boolean }) => void
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function AuthModal({ mode, providers, onClose, onAuthed }: AuthModalProps) {
+export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
+  const { loginWithWallet } = useAuth()
+  const [walletBusy, setWalletBusy] = useState(false)
+  const [showEmailForm, setShowEmailForm] = useState(false)
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -206,7 +199,20 @@ export function AuthModal({ mode, providers, onClose, onAuthed }: AuthModalProps
 
   const valid = EMAIL_RE.test(email) && password.length >= 8
 
-  async function submit() {
+  async function handleWalletClick() {
+    setWalletBusy(true)
+    setError(null)
+    try {
+      const ok = await loginWithWallet()
+      if (ok) onClose()
+    } catch (err: any) {
+      setError(err.message || 'Wallet sign-in failed')
+    } finally {
+      setWalletBusy(false)
+    }
+  }
+
+  async function submitEmail() {
     if (!valid) return
     setSubmitting(true)
     setError(null)
@@ -225,71 +231,91 @@ export function AuthModal({ mode, providers, onClose, onAuthed }: AuthModalProps
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-white">
-          {mode === 'register' ? 'Create trader account' : 'Sign in'}
+        <h2 className="text-lg font-bold text-white">
+          {mode === 'register' ? 'Join Dolymarket' : 'Welcome Back'}
         </h2>
-        <p className="mt-1 text-sm text-slate-400">
-          {mode === 'register'
-            ? 'Register to trade, deposit funds and receive fill notifications.'
-            : 'Welcome back. Enter your credentials to access your portfolio.'}
+        <p className="mt-1 text-xs text-slate-400">
+          Connect your Web3 crypto wallet for non-custodial, passwordless trading.
         </p>
-        <div className="mt-5 space-y-3">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-400">Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-medium text-slate-400">
-              Password <span className="text-slate-600">(min 8 chars)</span>
-            </span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && valid && submit()}
-              placeholder="••••••••"
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
-            />
-          </label>
-        </div>
+
         {error && (
           <div className="mt-3 rounded-lg border border-red-800/60 bg-red-950/50 px-3 py-2 text-xs text-red-200">
             {error}
           </div>
         )}
-        <button
-          disabled={!valid || submitting}
-          onClick={submit}
-          className="mt-5 w-full rounded-lg bg-emerald-500 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {submitting
-            ? 'Please wait…'
-            : mode === 'register'
-              ? 'Create Account'
-              : 'Sign In'}
-        </button>
-        {mode === 'register' && (
-          <p className="mt-3 text-center text-xs text-slate-500">
-            Demo trader preset: <span className="text-slate-300">trader@demo.io</span> /{' '}
-            <span className="text-slate-300">trader-demo-1234</span>
-          </p>
-        )}
 
-        <div className="mt-5">
-          <AuthProviders providers={providers} onAuthed={onAuthed} />
+        {/* Primary Web3 Wallet Login CTA */}
+        <div className="mt-5 space-y-2.5">
+          <button
+            type="button"
+            disabled={walletBusy}
+            onClick={handleWalletClick}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50 shadow-lg shadow-emerald-500/10"
+          >
+            <Wallet className="h-4 w-4" />
+            {walletBusy ? 'Connecting & Signing…' : 'Sign In with Web3 Wallet'}
+          </button>
+
+          <AuthProviders onAuthed={onAuthed} compact />
+        </div>
+
+        {/* Email & Password Fallback Toggle */}
+        <div className="mt-5 border-t border-slate-800/80 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowEmailForm(!showEmailForm)}
+            className="flex w-full items-center justify-between text-[11px] font-medium text-slate-400 hover:text-slate-200 transition"
+          >
+            <span>Or continue with email / dev account</span>
+            {showEmailForm ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+
+          {showEmailForm && (
+            <div className="mt-3 space-y-3">
+              <label className="block">
+                <span className="text-[11px] font-medium text-slate-400">Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@dolymarket.internal"
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-medium text-slate-400">
+                  Password <span className="text-slate-600">(min 8 chars)</span>
+                </span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && valid && submitEmail()}
+                  placeholder="••••••••"
+                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </label>
+
+              <button
+                disabled={!valid || submitting}
+                onClick={submitEmail}
+                className="w-full rounded-lg bg-slate-800 py-2 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {submitting
+                  ? 'Please wait…'
+                  : mode === 'register'
+                    ? 'Create Email Account'
+                    : 'Sign In with Email'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

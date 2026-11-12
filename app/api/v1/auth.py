@@ -1,4 +1,9 @@
-"""Authentication endpoints: registration and login."""
+"""Authentication endpoints: registration, login, and Web3 wallet sign-in."""
+import secrets
+from datetime import UTC, datetime, timedelta
+
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
@@ -7,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core import security
 from app.db.session import get_async_session
-from app.models.domain import User
+from app.models.domain import User, WalletChallenge
 from app.services import collateral
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -27,6 +32,23 @@ class DexBuilderWalletRequest(BaseModel):
     wallet_address: str = Field(min_length=1, max_length=128)
 
 
+class WalletChallengeRequest(BaseModel):
+    address: str = Field(min_length=42, max_length=42)
+    chain_id: int | None = 8453
+
+
+class WalletChallengeResponse(BaseModel):
+    challenge: str
+    nonce: str
+    expires_at: str
+
+
+class WalletVerifyRequest(BaseModel):
+    address: str = Field(min_length=42, max_length=42)
+    signature: str = Field(min_length=64)
+    nonce: str = Field(min_length=16, max_length=64)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -41,6 +63,7 @@ def _user_payload(user: User) -> dict:
         # Advisory for the client (the console only renders for admins);
         # the server remains the authority on every admin route.
         "is_admin": bool(getattr(user, "is_admin", False)),
+        "dexbuilder_wallet": getattr(user, "dexbuilder_wallet", None),
     }
 
 
@@ -109,3 +132,116 @@ async def rotate_api_key(
         "message_format": "X-TIMESTAMP + METHOD + PATH + BODY",
         "headers": ["X-API-KEY", "X-TIMESTAMP", "X-SIGNATURE"],
     }
+
+
+@router.post("/wallet/challenge", response_model=WalletChallengeResponse)
+async def wallet_challenge(
+    body: WalletChallengeRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    norm_address = body.address.strip().lower()
+    if not norm_address.startswith("0x") or len(norm_address) != 42:
+        raise HTTPException(status_code=400, detail="Invalid EVM address format")
+
+    nonce = secrets.token_hex(16)
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(minutes=5)
+    iso_now = now.isoformat()
+
+    message = (
+        f"dolymarket.com wants you to sign in with your Ethereum account:\n"
+        f"{body.address.strip()}\n\n"
+        f"Sign in to Dolymarket with your non-custodial crypto wallet.\n\n"
+        f"URI: https://dolymarket.com\n"
+        f"Version: 1\n"
+        f"Chain ID: {body.chain_id or 8453}\n"
+        f"Nonce: {nonce}\n"
+        f"Issued At: {iso_now}"
+    )
+
+    challenge_record = WalletChallenge(
+        address=norm_address,
+        nonce=nonce,
+        message=message,
+        expires_at=expires_at,
+    )
+    session.add(challenge_record)
+    await session.flush()
+
+    return WalletChallengeResponse(
+        challenge=message,
+        nonce=nonce,
+        expires_at=expires_at.isoformat(),
+    )
+
+
+@router.post("/wallet/verify", response_model=TokenResponse)
+async def wallet_verify(
+    body: WalletVerifyRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    norm_address = body.address.strip().lower()
+    now = datetime.now(UTC)
+
+    # 1. Fetch challenge
+    res = await session.execute(
+        select(WalletChallenge).where(
+            WalletChallenge.nonce == body.nonce.strip(),
+            WalletChallenge.address == norm_address,
+        )
+    )
+    challenge_record = res.scalar_one_or_none()
+    if not challenge_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired wallet challenge")
+
+    # Handle timezone compatibility
+    exp = challenge_record.expires_at
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=UTC)
+
+    if exp < now:
+        await session.delete(challenge_record)
+        await session.flush()
+        raise HTTPException(status_code=400, detail="Wallet challenge has expired")
+
+    # 2. Recover signer using eth_account
+    try:
+        signable_msg = encode_defunct(text=challenge_record.message)
+        recovered = Account.recover_message(signable_msg, signature=body.signature.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid signature format: {exc}") from exc
+
+    if recovered.lower() != norm_address:
+        raise HTTPException(status_code=400, detail="Signature does not match wallet address")
+
+    # Consume challenge so it cannot be replayed
+    await session.delete(challenge_record)
+
+    # 3. Lookup or auto-provision user
+    user_res = await session.execute(
+        select(User).where(User.dexbuilder_wallet == norm_address)
+    )
+    user = user_res.scalar_one_or_none()
+
+    if not user:
+        wallet_email = f"{norm_address}@wallet.dolymarket"
+        email_res = await session.execute(select(User).where(User.email == wallet_email))
+        user = email_res.scalar_one_or_none()
+
+        if not user:
+            user = User(
+                email=wallet_email,
+                hashed_password=security.unusable_password_hash(),
+                dexbuilder_wallet=norm_address,
+            )
+            session.add(user)
+            await session.flush()
+            # Seed starting simulated trading collateral
+            await collateral.get_or_create_account(session, user.id)
+
+    token = security.create_access_token(user.id, user.email)
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=_user_payload(user),
+    )

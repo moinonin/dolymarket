@@ -543,13 +543,41 @@ export class ApiClient {
     return data;
   }
 
+  /** Request a cryptographic SIWE challenge for Web3 wallet authentication. */
+  getWalletChallenge(address: string, chainId?: number): Promise<{ challenge: string; nonce: string; expires_at: string }> {
+    return this.request(
+      '/api/v1/auth/wallet/challenge',
+      { method: 'POST', body: JSON.stringify({ address, chain_id: chainId ?? 8453 }) },
+      false
+    );
+  }
+
+  /** Verify wallet signature and issue access token (SIWE). */
+  async verifyWalletLogin(address: string, signature: string, nonce: string): Promise<AuthResponse> {
+    const data = await this.request<AuthResponse>(
+      '/api/v1/auth/wallet/verify',
+      { method: 'POST', body: JSON.stringify({ address, signature, nonce }) },
+      false
+    );
+    setStoredToken(data.access_token);
+    return data;
+  }
+
   logout(): void {
     clearStoredToken();
   }
 
   /** Profile of the authenticated account. */
-  getMe(): Promise<{ id: string; email: string; created_at: string; is_admin: boolean }> {
+  getMe(): Promise<{ id: string; email: string; created_at: string; is_admin: boolean; dexbuilder_wallet?: string | null }> {
     return this.request('/api/v1/auth/me');
+  }
+
+  /** Set the DexBuilder sub-user wallet address for the authenticated user. */
+  setDexBuilderWallet(wallet_address: string): Promise<{ user_id: string; dexbuilder_wallet: string }> {
+    return this.request('/api/v1/auth/dexbuilder-wallet', {
+      method: 'POST',
+      body: JSON.stringify({ wallet_address }),
+    });
   }
 
   // ---- Collateral ---------------------------------------------------------

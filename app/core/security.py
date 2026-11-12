@@ -34,8 +34,8 @@ if not _INSECURE_SECRETS_ALLOWED:
             "JWT_SECRET is a publicly known default; set a unique random secret."
         )
 JWT_SECRET = _SECRET or "test-secret-key-1234567890abcdef"
-JWT_ALGORITHM = "HS256"
-TOKEN_TTL_SECONDS = 60 * 60 * 24
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256").strip() or "HS256"
+TOKEN_TTL_SECONDS = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")) * 60
 
 
 def hash_password(password: str) -> str:

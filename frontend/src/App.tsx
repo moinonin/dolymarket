@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { ToastProvider } from './context/toast'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
+import { WalletProvider } from './context/WalletContext'
+import { WalletButton } from './components/WalletButton'
 import { setToastHandler } from './api/client'
 import { useToast } from './context/toast'
 import HomePage from './pages/HomePage'
@@ -57,9 +59,11 @@ export default function App() {
   return (
     <ToastProvider>
       <ToastBridge />
-      <AuthProvider>
-        <Shell />
-      </AuthProvider>
+      <WalletProvider>
+        <AuthProvider>
+          <Shell />
+        </AuthProvider>
+      </WalletProvider>
     </ToastProvider>
   )
 }
@@ -229,6 +233,7 @@ function Nav({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <WalletButton />
           <a
             href={import.meta.env.VITE_DOCS_URL || '/docs/'}
             target="_blank"

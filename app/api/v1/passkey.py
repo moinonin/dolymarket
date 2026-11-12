@@ -78,8 +78,17 @@ def _origins() -> list[str]:
         origins = [o.strip() for o in raw.split(",") if o.strip()]
         if origins:
             return origins
-    default = os.environ.get("WEBAUTHN_ORIGIN", "http://localhost:8000").strip()
-    return [default or "http://localhost:8000"]
+    default = os.environ.get("WEBAUTHN_ORIGIN", "").strip()
+    if default:
+        return [default]
+    return [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
 
 def _credential_payload(body: PasskeyVerifyRequest) -> dict:
