@@ -92,6 +92,8 @@ async def list_events(
         )
     if sort_by == "ending_soon":
         stmt = stmt.order_by(Event.end_date.asc().nullslast())
+    elif sort_by == "volume":
+        stmt = stmt.order_by(Event.total_volume.desc())
     elif sort_by == "liquidity":
         stmt = stmt.order_by(Event.total_volume.desc())
     else:

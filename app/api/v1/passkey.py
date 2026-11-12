@@ -341,6 +341,9 @@ async def passkey_login_verify(
             "id": user.id,
             "email": user.email,
             "created_at": str(user.created_at),
+            # Same shape as /api/v1/auth/me so the client's admin gating is
+            # correct immediately after passkey sign-in.
+            "is_admin": bool(getattr(user, "is_admin", False)),
         },
     }
 

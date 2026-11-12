@@ -75,7 +75,13 @@ async def dispute_proposal(
         raise HTTPException(status_code=404, detail="No pending resolution proposal")
     if market.status != "IN_RESOLUTION":
         raise HTTPException(status_code=409, detail="Market is not IN_RESOLUTION")
-    if _now() > dispute.dispute_deadline:
+    # SQLite drops the tzinfo on the way through a timezone-aware column;
+    # normalise before comparing so an aware _now() never raises against a
+    # naive stored deadline.
+    deadline = dispute.dispute_deadline
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=UTC)
+    if _now() > deadline:
         raise HTTPException(status_code=409, detail="Dispute window has expired")
     if counter_bond < dispute.bond_amount:
         raise HTTPException(status_code=400, detail="Counter-bond below proposal bond")
@@ -87,7 +93,7 @@ async def dispute_proposal(
 async def finalize_resolution(
     session: AsyncSession, market: Market, winning_outcome_index: int
 ) -> Market:
-    if market.status not in ("IN_RESOLUTION", "DISPUTED", "CLOSED"):
+    if market.status not in ("IN_RESOLUTION", "DISPUTED"):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot resolve market in status {market.status}",

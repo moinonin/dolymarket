@@ -3,6 +3,8 @@ import asyncio
 import json
 from typing import Any
 
+from starlette.websockets import WebSocketState
+
 
 class ConnectionManager:
     def __init__(self):
@@ -12,11 +14,15 @@ class ConnectionManager:
         self._loop_lock = asyncio.Lock()
 
     async def connect_public(self, ws) -> None:
-        await ws.accept()
+        # A route that already accepted (e.g. during a pre-auth handshake)
+        # must not be accepted twice: Starlette raises RuntimeError.
+        if ws.client_state == WebSocketState.CONNECTING:
+            await ws.accept()
         self.public.append(ws)
 
     async def connect_private(self, ws, user_id: str) -> None:
-        await ws.accept()
+        if ws.client_state == WebSocketState.CONNECTING:
+            await ws.accept()
         self.private[ws] = user_id
 
     def disconnect(self, ws) -> None:

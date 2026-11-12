@@ -1,6 +1,8 @@
 """Collateral endpoints: balance queries, deposits, withdrawals, ledger."""
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -12,7 +14,17 @@ router = APIRouter(prefix="/api/v1/collateral", tags=["collateral"])
 
 
 class AmountRequest(BaseModel):
-    amount: float = Field(gt=0)  # validated positive at schema level too
+    # Decimal (not float) so binary rounding never touches money columns, with
+    # a per-request cap: until a payment provider verifies real funds, the
+    # deposit endpoint must not be able to mint unbounded balances.
+    amount: Decimal = Field(gt=0, le=Decimal("100000"))
+
+    @field_validator("amount")
+    @classmethod
+    def _check_finite(cls, v: Decimal) -> Decimal:
+        if not v.is_finite():
+            raise ValueError("amount must be a finite number")
+        return v
 
 
 @router.get("/balance")

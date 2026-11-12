@@ -573,8 +573,19 @@ function OrdersTable({
         <button
           onClick={async () => {
             try {
-              const res = await api.cancelAllOrders({})
-              push(`Cancelled ${res.cancelled_count} order(s).`, 'info')
+              // The backend requires a market scope per batch cancel, so
+              // cancel per market and aggregate the counts.
+              const marketIds = [...new Set(orders.map((o) => o.market_id))]
+              const results = await Promise.all(
+                marketIds.map((id) =>
+                  api.cancelAllOrders({ market_id: id }).catch(() => null)
+                )
+              )
+              const cancelled = results.reduce(
+                (n, r) => n + (r?.cancelled_count ?? 0),
+                0
+              )
+              push(`Cancelled ${cancelled} order(s).`, 'info')
               onChanged()
             } catch (err: any) {
               push(err.message || 'Batch cancel failed', 'error')

@@ -54,7 +54,13 @@ export default function MarketsPage({
         setError(null)
         const params: any = { sort_by: sort, limit: 50 }
         if (category !== 'All') params.category = category
-        if (statusTab === 'ACTIVE' || statusTab === 'RESOLVED') params.status = statusTab
+        if (statusTab === 'ACTIVE_ENDING') {
+          // "Ending Soon" is an ordering, not a status filter: the backend
+          // sorts by end_date for sort_by=ending_soon.
+          params.sort_by = 'ending_soon'
+        } else if (statusTab === 'ACTIVE' || statusTab === 'RESOLVED') {
+          params.status = statusTab
+        }
         if (search.trim()) params.search = search.trim()
         const res = await api.listEvents(params)
         if (cancelled) return

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.db.session import get_async_session
+from app.models.domain import User
 from app.services.dexbuilder import DexBuilderAuthError, DexBuilderClient
 
 router = APIRouter(prefix="/api/v4/dexbuilder", tags=["dexbuilder"])
@@ -34,7 +37,7 @@ def _upstream_error(exc: Exception) -> HTTPException:
 
 
 @router.get("/markets")
-async def proxy_markets(status: str | None = None, category: str | None = None, limit: int = 50, client: DexBuilderClient = Depends(get_client)):
+async def proxy_markets(status: str | None = None, category: str | None = None, limit: int = Query(default=50, ge=1, le=100), client: DexBuilderClient = Depends(get_client)):
     try:
         return await client.get_markets(status=status, category=category, limit=limit)
     except Exception as exc:
@@ -60,7 +63,7 @@ async def proxy_market_by_slug(slug: str, client: DexBuilderClient = Depends(get
 @router.get("/markets/{market_id}/trades")
 async def proxy_market_trades(
     market_id: str,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     client: DexBuilderClient = Depends(get_client),
 ):
     try:
@@ -70,7 +73,7 @@ async def proxy_market_trades(
 
 
 @router.get("/events")
-async def proxy_events(status: str | None = None, category: str | None = None, limit: int = 50, client: DexBuilderClient = Depends(get_client)):
+async def proxy_events(status: str | None = None, category: str | None = None, limit: int = Query(default=50, ge=1, le=100), client: DexBuilderClient = Depends(get_client)):
     try:
         return await client.get_events(status=status, category=category, limit=limit)
     except Exception as exc:
@@ -145,7 +148,7 @@ async def proxy_price_history(
 async def proxy_candlesticks(
     token_id: str,
     interval: str = "1m",
-    limit: int = 200,
+    limit: int = Query(default=200, ge=1, le=1000),
     client: DexBuilderClient = Depends(get_client),
 ):
     try:
@@ -180,34 +183,65 @@ async def proxy_bulk_prices(
     except Exception as exc:
         raise _upstream_error(exc) from exc
 
-
+# Private upstream surfaces (positions, settled positions, usertrades, orders) are
+# re-exposed here behind authentication. Every request is signed with the
+# broker credential and carries X-User-Wallet-Address so the gateway can verify
+# the sub-user belongs to this broker.
 @router.get("/positions")
-async def proxy_positions(client: DexBuilderClient = Depends(get_client)):
+async def proxy_positions(
+    user: User = Depends(get_current_user),
+    client: DexBuilderClient = Depends(get_client),
+):
+    if not user.dexbuilder_wallet:
+        raise HTTPException(
+            status_code=400, detail="DEXBUILDER_WALLET_NOT_CONFIGURED"
+        )
     try:
-        return await client.get_positions()
+        return await client.get_positions(user_wallet=user.dexbuilder_wallet)
     except Exception as exc:
         raise _upstream_error(exc) from exc
 
 
 @router.get("/positions/settled")
-async def proxy_settled_positions(client: DexBuilderClient = Depends(get_client)):
+async def proxy_settled_positions(
+    user: User = Depends(get_current_user),
+    client: DexBuilderClient = Depends(get_client),
+):
+    if not user.dexbuilder_wallet:
+        raise HTTPException(
+            status_code=400, detail="DEXBUILDER_WALLET_NOT_CONFIGURED"
+        )
     try:
-        return await client.get_settled_positions()
+        return await client.get_settled_positions(user_wallet=user.dexbuilder_wallet)
     except Exception as exc:
         raise _upstream_error(exc) from exc
 
 
 @router.get("/usertrades")
-async def proxy_user_trades(client: DexBuilderClient = Depends(get_client)):
+async def proxy_user_trades(
+    user: User = Depends(get_current_user),
+    client: DexBuilderClient = Depends(get_client),
+):
+    if not user.dexbuilder_wallet:
+        raise HTTPException(
+            status_code=400, detail="DEXBUILDER_WALLET_NOT_CONFIGURED"
+        )
     try:
-        return await client.get_user_trades()
+        return await client.get_user_trades(user_wallet=user.dexbuilder_wallet)
     except Exception as exc:
         raise _upstream_error(exc) from exc
 
 
 @router.get("/orders")
-async def proxy_orders(client: DexBuilderClient = Depends(get_client)):
+async def proxy_orders(
+    user: User = Depends(get_current_user),
+    client: DexBuilderClient = Depends(get_client),
+):
+    if not user.dexbuilder_wallet:
+        raise HTTPException(
+            status_code=400, detail="DEXBUILDER_WALLET_NOT_CONFIGURED"
+        )
     try:
-        return await client.get_orders()
+        return await client.get_orders(user_wallet=user.dexbuilder_wallet)
     except Exception as exc:
         raise _upstream_error(exc) from exc

@@ -129,7 +129,7 @@ function Shell() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-background text-foreground">
       <Nav
         section={section}
         onNavigate={navigate}
@@ -138,7 +138,7 @@ function Shell() {
         onLogout={logout}
       />
       {page}
-      <footer className="border-t border-slate-900 py-6 text-center text-[11px] text-slate-600">
+      <footer className="border-t border-border py-6 text-center text-[11px] text-muted-foreground">
         Dolymarket — a demo trading environment. Funds are simulated; nothing here is
         financial advice.
       </footer>
@@ -204,13 +204,13 @@ function Nav({
   }
 
   return (
-    <nav className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
+    <nav className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
         <button
           onClick={() => go(user ? 'markets' : 'home')}
-          className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-white transition hover:text-emerald-300"
+          className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-foreground transition hover:text-accent"
         >
-          <BarChart3 className="h-5 w-5 text-emerald-400" />
+          <BarChart3 className="h-5 w-5 text-accent" />
           Dolymarket
         </button>
 
@@ -222,8 +222,8 @@ function Nav({
               onClick={() => go(key)}
               className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 activeSection === key
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -238,19 +238,19 @@ function Nav({
             target="_blank"
             rel="noopener noreferrer"
             title="Documentation"
-            className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition hover:border-accent/40 hover:text-accent"
           >
             <BookOpen className="h-3 w-3" /> <span className="hidden sm:inline">Docs</span>
           </a>
           {user ? (
             <>
-              <span className="hidden items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1 text-[11px] text-slate-300 sm:flex">
-                <ShieldCheck className="h-3 w-3 text-emerald-400" />
+              <span className="hidden items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] text-foreground sm:flex">
+                <ShieldCheck className="h-3 w-3 text-accent" />
                 {user.email || 'trader'}
               </span>
               <button
                 onClick={onLogout}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-2.5 py-1.5 text-[11px] text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
               >
                 <LogOut className="h-3 w-3" /> <span className="hidden sm:inline">Sign out</span>
               </button>

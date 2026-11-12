@@ -4,30 +4,30 @@ import type { Market, MarketStatus, EventStatus } from '../api/client'
 export function statusTone(status: string): string {
   switch (status) {
     case 'ACTIVE':
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+      return 'bg-accent/10 text-accent border-accent/30'
     case 'CLOSED':
     case 'IN_RESOLUTION':
       return 'bg-amber-500/10 text-amber-400 border-amber-500/30'
     case 'RESOLVED':
       return 'bg-blue-500/10 text-blue-400 border-blue-500/30'
     case 'DISPUTED':
-      return 'bg-red-500/10 text-red-400 border-red-500/30'
+      return 'bg-destructive/10 text-destructive border-destructive/30'
     case 'SUSPENDED':
-      return 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+      return 'bg-muted text-muted-foreground border-border'
     case 'FILLED':
       return 'bg-blue-500/10 text-blue-400 border-blue-500/30'
     case 'OPEN':
     case 'PARTIALLY_FILLED':
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+      return 'bg-accent/10 text-accent border-accent/30'
     case 'CANCELLED':
     case 'REJECTED':
-      return 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+      return 'bg-muted text-muted-foreground border-border'
     case 'BUY':
-      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+      return 'bg-accent/10 text-accent border-accent/30'
     case 'SELL':
       return 'bg-rose-500/10 text-rose-400 border-rose-500/30'
     default:
-      return 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+      return 'bg-muted text-muted-foreground border-border'
   }
 }
 
@@ -76,10 +76,10 @@ export function ProbabilityBar({
 }) {
   const p = yes == null ? null : Math.max(0, Math.min(1, yes))
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
       {p != null && (
         <>
-          <div className="bg-emerald-500 transition-all" style={{ width: `${p * 100}%` }} />
+          <div className="bg-accent transition-all" style={{ width: `${p * 100}%` }} />
           <div className="bg-rose-500 transition-all" style={{ width: `${(1 - p) * 100}%` }} />
         </>
       )}
@@ -88,7 +88,7 @@ export function ProbabilityBar({
 }
 
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-slate-800/70 ${className}`} />
+  return <div className={`animate-pulse rounded-lg bg-muted/70 ${className}`} />
 }
 
 export function FeePreview({
@@ -108,15 +108,15 @@ export function FeePreview({
     c > 0 && p > 0 && p < 1 ? c * feeRate * p * (1 - p) : 0
   const discounted = fee * (1 - Math.max(0, Math.min(1, discountRate)))
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
+    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs">
       <div className="flex items-center justify-between">
-        <span className="text-slate-400">
+        <span className="text-muted-foreground">
           Est. {discountRate > 0 ? 'taker ' : ''}fee{' '}
-          <span className="text-slate-600">· C × feeRate × p × (1−p)</span>
+          <span className="text-muted-foreground/60">· C × feeRate × p × (1−p)</span>
         </span>
         <span className="flex items-baseline gap-1.5 font-mono font-medium text-amber-400">
           {discountRate > 0 && (
-            <span className="text-[10px] text-slate-600 line-through">
+            <span className="text-[10px] text-muted-foreground/60 line-through">
               ${fee.toFixed(4)}
             </span>
           )}
@@ -124,7 +124,7 @@ export function FeePreview({
         </span>
       </div>
       {discountRate > 0 && (
-        <p className="mt-1 text-[10px] text-emerald-400">
+        <p className="mt-1 text-[10px] text-accent">
           AGX staking discount applied: {(discountRate * 100).toFixed(1)}% off taker fees
         </p>
       )}

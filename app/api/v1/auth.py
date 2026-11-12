@@ -23,6 +23,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class DexBuilderWalletRequest(BaseModel):
+    wallet_address: str = Field(min_length=1, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -72,6 +76,18 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_async_se
 async def me(user: User = Depends(get_current_user)):
     """Profile of the authenticated account."""
     return _user_payload(user)
+
+
+@router.post("/dexbuilder-wallet")
+async def set_dexbuilder_wallet(
+    body: DexBuilderWalletRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Set the DexBuilder sub-user wallet address for the authenticated user."""
+    user.dexbuilder_wallet = body.wallet_address
+    await session.flush()
+    return {"user_id": user.id, "dexbuilder_wallet": user.dexbuilder_wallet}
 
 
 @router.post("/api-key")

@@ -3,10 +3,21 @@
 Serves the REST + WebSocket API under /api and statically serves the built
 React frontend bundle from frontend/dist when present.
 """
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Load .env before any settings are read so JWT_SECRET and other env vars
+# defined in the project's .env file are available to os.environ.get calls.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +42,8 @@ from app.api.v4.prediction import live as prediction_live_router
 from app.core.ratelimit import (
     AUTH_CAPACITY,
     AUTH_RATE,
+    MONEY_CAPACITY,
+    MONEY_RATE,
     ORDER_CAPACITY,
     ORDER_RATE,
     PUBLIC_CAPACITY,
@@ -44,9 +57,39 @@ ORDER_MUTATION_PREFIX = "/api/v4/prediction/orders"
 PUBLIC_READ_PREFIX = "/api/v4/prediction/"
 AUTH_ATTACK_PATHS = (
     "/api/v1/auth/login",
+    "/api/v1/auth/register",
     "/api/v1/auth/oauth/exchange",
     "/api/v1/auth/passkey/login/verify",
+    "/api/v1/auth/passkey/register/options",
+    "/api/v1/auth/passkey/register/verify",
 )
+MONEY_MUTATION_PATHS = (
+    "/api/v1/collateral/deposit",
+    "/api/v1/collateral/withdraw",
+)
+
+
+def _client_ip(request: Request) -> str:
+    """Client IP for rate-limit bucketing.
+
+    ``X-Forwarded-For`` is only honoured behind a trusted proxy (opt-in via
+    ``TRUST_PROXY_HEADERS=1``); trusting it blindly lets any caller spoof a
+    fresh bucket per request.
+    """
+    if os.environ.get("TRUST_PROXY_HEADERS", "").strip() == "1":
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        first = forwarded.split(",")[0].strip() if forwarded else ""
+        if first:
+            return first
+    return request.client.host if request.client else "anonymous"
+
+
+def _credential(request: Request) -> str:
+    return (
+        request.headers.get("X-API-KEY")
+        or request.headers.get("Authorization")
+        or _client_ip(request)
+    )
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -60,20 +103,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request.method in ("POST", "DELETE")
             and path.startswith(ORDER_MUTATION_PREFIX)
         ):
-            credential = (
-                request.headers.get("X-API-KEY")
-                or request.headers.get("Authorization")
-                or (request.client.host if request.client else "anonymous")
-            )
-            key = f"orders:{credential}"
+            key = f"orders:{_credential(request)}"
             policy = ("50 order requests/second", ORDER_RATE, ORDER_CAPACITY)
+        elif request.method == "POST" and path in MONEY_MUTATION_PATHS:
+            key = f"money:{_credential(request)}"
+            policy = (
+                "30 collateral mutations/minute",
+                MONEY_RATE,
+                MONEY_CAPACITY,
+            )
         elif request.method == "GET" and path.startswith(PUBLIC_READ_PREFIX):
-            ip = request.client.host if request.client else "anonymous"
-            key = f"public:{ip}"
+            key = f"public:{_client_ip(request)}"
             policy = ("100 public requests/minute", PUBLIC_RATE, PUBLIC_CAPACITY)
         elif request.method == "POST" and path in AUTH_ATTACK_PATHS:
-            ip = request.client.host if request.client else "anonymous"
-            key = f"auth:{ip}"
+            key = f"auth:{_client_ip(request)}"
             policy = ("30 sign-in attempts/minute", AUTH_RATE, AUTH_CAPACITY)
 
         if policy is not None:
@@ -112,9 +155,16 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Wildcard CORS keeps local dev frictionless; production deployments set
+# CORS_ALLOW_ORIGINS (comma separated) to the exact frontend origins.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOW_ORIGINS", "*").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins or ["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,6 +176,35 @@ app.add_middleware(RateLimitMiddleware)
 async def _agx_error_handler(request: Request, exc: AgxError) -> JSONResponse:
     """Map AGX domain failures onto their stable HTTP status and error code."""
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.code})
+
+
+def _json_safe(value):
+    """Make a validation error JSON-encodable for Starlette's
+    allow_nan=False encoder: non-finite floats and Decimals become strings
+    instead of 500ing while rendering the 422 itself."""
+    import math
+    from decimal import Decimal
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, BaseException):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422, content={"detail": _json_safe(exc.errors())}
+    )
 
 
 app.include_router(auth_router.router)

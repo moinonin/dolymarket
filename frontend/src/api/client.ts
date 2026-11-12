@@ -420,11 +420,10 @@ export interface AgxStats {
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = 'dolymarket_auth_token';
-const LEGACY_TOKEN_KEY = 'pm_auth_token';
 
 export function getStoredToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
@@ -441,7 +440,9 @@ export function setStoredToken(token: string): void {
 export function clearStoredToken(): void {
   try {
     localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    // Legacy key from a previous release; remove on every sign-out so a
+    // second long-lived token can never survive.
+    localStorage.removeItem('pm_auth_token');
   } catch {
     /* ignore */
   }
@@ -453,8 +454,14 @@ export function clearStoredToken(): void {
 
 type ToastHandler = (message: string, kind: 'error' | 'info') => void;
 let toastHandler: ToastHandler | null = null;
-export function setToastHandler(handler: ToastHandler): void {
+export function setToastHandler(handler: ToastHandler | null): void {
   toastHandler = handler;
+}
+
+type UnauthorizedHandler = (status: number, message: string) => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
 }
 
 function extractDetail(data: any): string {
@@ -499,7 +506,10 @@ export class ApiClient {
       }
       const msg = extractDetail(data) || `Request failed (${res.status})`;
       toastHandler?.(msg, res.status === 401 || res.status === 403 ? 'error' : 'error');
-      if (res.status === 401) clearStoredToken();
+      if (res.status === 401) {
+        clearStoredToken();
+        unauthorizedHandler?.(res.status, msg);
+      }
       throw new ApiError(res.status, msg, data);
     }
 
@@ -649,9 +659,11 @@ export class ApiClient {
     return this.request(`/api/v4/prediction/orders/${orderId}`, { method: 'DELETE' });
   }
 
-  cancelAllOrders(params: { market_id?: string; condition_id?: string }): Promise<{ cancelled_count: number; cancelled_order_ids: string[] }> {
+  cancelAllOrders(params: { market_id: string; condition_id?: string }): Promise<{ cancelled_count: number; cancelled_order_ids: string[] }> {
+    // The backend rejects a batch cancel without a market/condition scope.
     const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => v && qs.set(k, v));
+    qs.set('market_id', params.market_id);
+    if (params.condition_id) qs.set('condition_id', params.condition_id);
     return this.request(`/api/v4/prediction/orders?${qs.toString()}`, { method: 'DELETE' });
   }
 

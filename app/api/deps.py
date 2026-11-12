@@ -84,3 +84,17 @@ async def get_current_user(
     if user is None:
         raise _AUTH_ERROR
     return user
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Admin-only dependency: the server is the authority on admin routes.
+
+    Shared by every privileged surface (admin console, oracle resolution) so
+    authorization is declared on the route, not left to an inline check the
+    handler can forget to call.
+    """
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN_REQUIRED"
+        )
+    return user

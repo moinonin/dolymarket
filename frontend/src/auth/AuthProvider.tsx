@@ -9,6 +9,7 @@ import {
   api,
   getStoredToken,
   setStoredToken,
+  setUnauthorizedHandler,
   type OAuthProviderInfo,
 } from '../api/client'
 import AuthProviders, { OAUTH_MESSAGE_TYPE } from './AuthProviders'
@@ -70,6 +71,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void applyToken()
   }, [applyToken])
 
+  // A 401 from any API call means the token expired or was revoked: the
+  // token is already cleared by the client, so drop the session here too,
+  // otherwise the UI keeps showing a signed-in shell whose every call fails.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null))
+    return () => setUnauthorizedHandler(null)
+  }, [])
+
+  // Tokens carry a 24h exp: drop an already-expired token at rest instead of
+  // riding it through a doomed round trip per request.
+  useEffect(() => {
+    const token = getStoredToken()
+    if (!token) return
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1] ?? ''))
+      if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) {
+        api.logout()
+        setUser(null)
+      }
+    } catch {
+      /* unparseable token: leave validation to the server */
+    }
+  }, [])
+
   // Which federated providers this deployment supports.
   useEffect(() => {
     let cancelled = false
@@ -120,6 +145,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event.origin !== window.location.origin) return
       const data = event.data
       if (data?.type !== OAUTH_MESSAGE_TYPE || !data?.token) return
+      // Never trust a partially-formed payload: a malformed message must be
+      // ignored, not crash the handler.
+      if (!data.user?.id || !data.user?.email) return
       setStoredToken(data.token)
       setUser({ id: data.user.id, email: data.user.email, is_admin: Boolean(data.user.is_admin) })
     }

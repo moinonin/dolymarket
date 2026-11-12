@@ -197,6 +197,7 @@ class DexBuilderClient:
         path: str,
         params: dict | list[tuple[str, str]] | None = None,
         body: str = "",
+        user_wallet: str | None = None,
     ) -> Any:
         """Perform an upstream request.
 
@@ -212,6 +213,8 @@ class DexBuilderClient:
         headers = {"Accept": "application/json"}
         query = _encode_query(params)
         headers.update(self._sign(method, path, body, query))
+        if user_wallet:
+            headers["X-User-Wallet-Address"] = user_wallet
         # The signed query string must be byte-identical to the sent one, so
         # the URL is assembled here instead of letting httpx re-encode it.
         url = f"{path}?{query}" if query else path
@@ -395,17 +398,17 @@ class DexBuilderClient:
     async def get_time(self):
         return await self._request("GET", "/api/v4/prediction/time")
 
-    async def get_positions(self):
-        return await self._request("GET", "/api/v4/prediction/positions")
+    async def get_positions(self, user_wallet: str | None = None):
+        return await self._request("GET", "/api/v4/broker/prediction/positions", user_wallet=user_wallet)
 
-    async def get_settled_positions(self):
-        return await self._request("GET", "/api/v4/prediction/positions/settled")
+    async def get_settled_positions(self, user_wallet: str | None = None):
+        return await self._request("GET", "/api/v4/broker/prediction/positions/settled", user_wallet=user_wallet)
 
-    async def get_user_trades(self):
-        return await self._request("GET", "/api/v4/prediction/usertrades")
+    async def get_user_trades(self, user_wallet: str | None = None):
+        return await self._request("GET", "/api/v4/broker/prediction/usertrades", user_wallet=user_wallet)
 
-    async def get_orders(self):
-        return await self._request("GET", "/api/v4/prediction/orders")
+    async def get_orders(self, user_wallet: str | None = None):
+        return await self._request("GET", "/api/v4/broker/prediction/orders", user_wallet=user_wallet)
 
     def decimal(self, value) -> Decimal:
         return Decimal(str(value))

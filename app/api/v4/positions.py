@@ -2,7 +2,7 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,8 +25,15 @@ router = APIRouter(prefix="/api/v4/prediction", tags=["positions"])
 
 
 class SplitRequest(BaseModel):
-    market_id: str
-    shares: float
+    market_id: str = Field(min_length=1, max_length=64)
+    shares: Decimal = Field(gt=0, le=Decimal("1000000"))
+
+    @field_validator("shares")
+    @classmethod
+    def _check_finite(cls, v: Decimal) -> Decimal:
+        if not v.is_finite():
+            raise ValueError("shares must be a finite number")
+        return v
 
 
 def _position_payload(p: Position, token: OutcomeToken | None, market: Market | None,

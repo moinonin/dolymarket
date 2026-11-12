@@ -1,9 +1,11 @@
 """In-process token-bucket rate limiting.
 
-Two policies are enforced by :class:`RateLimitMiddleware`:
+Three policies are enforced by :class:`RateLimitMiddleware`:
 
 * authenticated order mutations: 50 requests/second per API key/bearer token
-* public prediction-market reads:  100 requests/minute per client IP
+* public prediction-market reads: 100 requests/minute per client IP
+* auth sign-in/registration attempts: 30 requests/minute per client IP
+* collateral money mutations: 30 requests/minute per credential
 
 For a multi-process deployment the buckets are trivially replaceable with a
 Redis ``INCR``/``EXPIRE`` implementation behind the same ``allow`` interface.
@@ -53,3 +55,6 @@ PUBLIC_CAPACITY = 100.0
 # 30 sign-in attempts/minute (brute-force protection).
 AUTH_RATE = 30.0 / 60.0
 AUTH_CAPACITY = 30.0
+# 30 collateral money mutations/minute per credential (faucet abuse guard).
+MONEY_RATE = 30.0 / 60.0
+MONEY_CAPACITY = 30.0

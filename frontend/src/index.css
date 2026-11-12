@@ -1,28 +1,77 @@
 @import "tailwindcss";
 
+@theme {
+  /* Design tokens (ui-ux-pro-max / Dolymarket dark OLED palette) */
+  --color-primary: #0f172a;
+  --color-on-primary: #ffffff;
+  --color-secondary: #1e293b;
+  --color-on-secondary: #ffffff;
+  --color-accent: #22c55e;
+  --color-on-accent: #0f172a;
+  --color-background: #020617;
+  --color-foreground: #f8fafc;
+  --color-card: #0e1223;
+  --color-card-foreground: #f8fafc;
+  --color-muted: #1a1e2f;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #334155;
+  --color-destructive: #ef4444;
+  --color-on-destructive: #000000;
+  --color-ring: #ffffff;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+}
+
 :root {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color-scheme: dark;
-  --primary: #3b82f6;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #090d16;
-  color: #f1f5f9;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Cursor pointer on all clickable elements */
+button,
+a,
+[role="button"],
+select,
+summary {
+  cursor: pointer;
+}
+
+/* Focus-visible ring for keyboard navigation (accessibility) */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Ensure reduced-motion is respected globally */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @keyframes hero-drift {
-  0% {
-    transform: scale(1.06) translate3d(0, 0, 0);
-  }
-  50% {
-    transform: scale(1.14) translate3d(-1.5%, 1%, 0);
-  }
-  100% {
-    transform: scale(1.06) translate3d(0, 0, 0);
-  }
+  0% { transform: scale(1.06) translate3d(0, 0, 0); }
+  50% { transform: scale(1.14) translate3d(-1.5%, 1%, 0); }
+  100% { transform: scale(1.06) translate3d(0, 0, 0); }
 }
 
 .hero-drift {
@@ -40,7 +89,5 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-drift {
-    animation: none;
-  }
+  .hero-drift { animation: none; }
 }

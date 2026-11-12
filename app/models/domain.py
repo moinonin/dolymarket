@@ -45,6 +45,9 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     api_key = Column(String(255), unique=True, nullable=True)
     is_admin = Column(Boolean, nullable=False, default=False)
+    # DexBuilder sub-user wallet address; required for private upstream reads
+    # (positions, orders, usertrades) signed with the broker credential.
+    dexbuilder_wallet = Column(String(128), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now_utc)
 
     collateral_account = relationship(

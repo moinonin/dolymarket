@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.api.v4.ws import _origin_allowed
 from app.services.dexbuilder import get_config
 from app.ws.dexbuilder_stream import DexBuilderStreamSession, subscription_item
 
@@ -33,6 +34,9 @@ def _sender(ws: WebSocket) -> Callable[[dict], Awaitable[None]]:
 @router.websocket("/api/v4/prediction/live/ws")
 async def live_ws(ws: WebSocket) -> None:
     """Forward the browser's live subscriptions to the upstream broker."""
+    if not _origin_allowed(ws):
+        await ws.close(code=4403)
+        return
     await ws.accept()
     session = DexBuilderStreamSession(get_config().DEXBUILDER_WS_URL, _sender(ws))
     session.start()

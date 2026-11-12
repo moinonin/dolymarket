@@ -8,7 +8,32 @@ import uuid
 import bcrypt
 import jwt
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "test-secret-key-1234567890abcdef")
+# Fail fast rather than silently minting forgable tokens: a missing or
+# publicly-known secret lets anyone forge a bearer JWT for any account.
+# Set ALLOW_INSECURE_SECRETS=1 only for hermetic local/test runs.
+_INSECURE_SECRETS_ALLOWED = os.environ.get("ALLOW_INSECURE_SECRETS", "").strip() == "1"
+_KNOWN_WEAK_SECRETS = frozenset(
+    {
+        "",
+        "test-secret-key-1234567890abcdef",
+        "dev-secret-change-in-production",
+        "secret",
+        "changeme",
+    }
+)
+_SECRET = os.environ.get("JWT_SECRET", "").strip()
+if not _INSECURE_SECRETS_ALLOWED:
+    if not _SECRET:
+        raise RuntimeError(
+            "JWT_SECRET is not set. Generate one with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(48))" '
+            "(set ALLOW_INSECURE_SECRETS=1 only for local test runs)."
+        )
+    if _SECRET in _KNOWN_WEAK_SECRETS:
+        raise RuntimeError(
+            "JWT_SECRET is a publicly known default; set a unique random secret."
+        )
+JWT_SECRET = _SECRET or "test-secret-key-1234567890abcdef"
 JWT_ALGORITHM = "HS256"
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 

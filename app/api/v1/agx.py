@@ -126,6 +126,10 @@ class DisputeBody(BaseModel):
 
 class SyncBody(BaseModel):
     verified_balance: StrictStr
+    # Target account to reconcile. Defaults to the caller (useful for
+    # self-service admin testing); the platform reconciler passes the user
+    # whose on-chain balance was verified.
+    user_id: StrictStr | None = None
 
 
 class DistributeBody(BaseModel):
@@ -308,10 +312,17 @@ async def sync_agx_balance(
     # Only the platform reconciler may attest on-chain balances; otherwise any
     # caller could mint spendable AGX by asserting a number.
     _require_admin(user)
+    target_id = body.user_id or user.id
+    if body.user_id:
+        target = (
+            await session.execute(select(User).where(User.id == body.user_id))
+        ).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
     row, credited = await agx.sync_balance(
-        session, user.id, agx.parse_amount(body.verified_balance)
+        session, target_id, agx.parse_amount(body.verified_balance)
     )
-    return {"credited": _s(credited), "balance": _balance_payload(row)}
+    return {"user_id": target_id, "credited": _s(credited), "balance": _balance_payload(row)}
 
 
 @router.get("/stats")

@@ -1,12 +1,16 @@
-"""Oracle resolution endpoints (UMA optimistic oracle pattern)."""
+"""Oracle resolution endpoints (UMA optimistic oracle pattern).
+
+Resolution is a privileged operation: only admins/oracles may propose,
+dispute or finalize, because finalize pays out every winning position.
+"""
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import require_admin
 from app.db.session import get_async_session
 from app.models.domain import Event, Market, OracleDispute, User
 from app.services import settlement
@@ -14,25 +18,36 @@ from app.services import settlement
 router = APIRouter(prefix="/api/v4/prediction/resolution", tags=["resolution"])
 
 
+def _finite(value: Decimal) -> Decimal:
+    if not value.is_finite():
+        raise ValueError("must be a finite number")
+    return value
+
+
 class ProposeRequest(BaseModel):
-    market_id: str
-    proposed_outcome_index: int
+    market_id: str = Field(min_length=1, max_length=64)
+    proposed_outcome_index: int = Field(ge=0)
 
 
 class DisputeRequest(BaseModel):
-    market_id: str
-    counter_bond: float = 50.0
+    market_id: str = Field(min_length=1, max_length=64)
+    counter_bond: Decimal = Field(default=Decimal("50"), gt=0, le=Decimal("100000"))
+
+    @field_validator("counter_bond")
+    @classmethod
+    def _check_bond(cls, v: Decimal) -> Decimal:
+        return _finite(v)
 
 
 class FinalizeRequest(BaseModel):
-    market_id: str
-    winning_outcome_index: int
+    market_id: str = Field(min_length=1, max_length=64)
+    winning_outcome_index: int = Field(ge=0)
 
 
 @router.post("/propose")
 async def propose(
     body: ProposeRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     market = (
@@ -56,7 +71,7 @@ async def propose(
 @router.post("/dispute")
 async def dispute(
     body: DisputeRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     market = (
@@ -64,9 +79,7 @@ async def dispute(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
-    result = await settlement.dispute_proposal(
-        session, market, Decimal(str(body.counter_bond))
-    )
+    result = await settlement.dispute_proposal(session, market, body.counter_bond)
     return {
         "market_id": market.id,
         "dispute_id": result.id,
@@ -77,7 +90,7 @@ async def dispute(
 @router.post("/finalize")
 async def finalize(
     body: FinalizeRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     market = (

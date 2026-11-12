@@ -1,6 +1,7 @@
 """Private order management endpoints (submit, list, cancel, batch cancel)."""
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -26,19 +27,42 @@ from app.models.domain import (
 from app.services import collateral, copy_engine, desk_track_record
 from app.ws.broadcaster import broadcast_engine_events
 
+logger = logging.getLogger("app.orders")
+
 router = APIRouter(prefix="/api/v4/prediction", tags=["orders"])
 
 
 class CreateOrderRequest(BaseModel):
-    market_id: str
-    token_id: str
+    market_id: str = Field(min_length=1, max_length=64)
+    token_id: str = Field(min_length=1, max_length=100)
     side: str = Field(max_length=10)
     type: str = Field(default="LIMIT", max_length=10)
-    price: float | None = None
-    amount: float
+    # Decimal (not float) so NaN/Infinity can never reach Decimal arithmetic
+    # and binary rounding never touches money columns. Bounds mirror the
+    # engine's MIN_PRICE/MAX_PRICE; tick alignment stays engine-side.
+    # Loose schema bounds (0..1) so the engine's own MIN_PRICE/MAX_PRICE
+    # rejection (400 with a precise message) is what surfaces, while NaN/Inf
+    # and binary float rounding are still blocked by the validators below.
+    price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("1")
+    )
+    amount: Decimal = Field(gt=0, le=Decimal("1000000"))
     time_in_force: str = Field(default="GTC", max_length=10)
     post_only: bool = False
-    desk_id: str | None = None
+    desk_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("side", "price", "amount")
+    @classmethod
+    def _check_fields(cls, v, info):
+        field = info.field_name
+        if field == "side":
+            v = v.upper()
+            if v not in ("BUY", "SELL"):
+                raise ValueError("side must be BUY or SELL")
+            return v
+        if v is not None and not v.is_finite():
+            raise ValueError("must be a finite number")
+        return v
 
     @field_validator("side")
     @classmethod
@@ -84,7 +108,11 @@ def _order_payload(o: Order) -> dict:
 
 
 def _request_hash(body: CreateOrderRequest) -> str:
-    canonical = json.dumps(body.model_dump(), sort_keys=True, separators=(",", ":"))
+    # Decimal fields are not JSON-serializable by default; str() keeps the
+    # canonical form stable for hashing purposes.
+    canonical = json.dumps(
+        body.model_dump(), sort_keys=True, separators=(",", ":"), default=str
+    )
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -218,34 +246,17 @@ async def submit_order(
             token,
             collateral,
             side=body.side,
-            price=Decimal(str(body.price)) if body.price is not None else None,
-            amount=Decimal(str(body.amount)),
+            price=body.price,
+            amount=body.amount,
             order_type=body.type,
             time_in_force=body.time_in_force,
             post_only=body.post_only,
             desk_id=desk.id if desk is not None else None,
         )
     except OrderRejected as exc:
-        if exc.rejected:
-            await session.commit()
-            payload = {
-                "order": {
-                    "id": None,
-                    "market_id": body.market_id,
-                    "token_id": body.token_id,
-                    "side": body.side,
-                    "type": body.type,
-                    "price": body.price,
-                    "amount": body.amount,
-                    "status": "REJECTED",
-                    "reason": exc.detail,
-                },
-                "fills": [],
-            }
-            _store_idempotent(
-                session, user.id, idempotency_key, req_hash, payload
-            )
-            return payload
+        # Rejections are errors, not creations: the route's declared 201 must
+        # only ever mean "order created". No idempotent result is stored for a
+        # rejected submission so a retry is a genuine retry.
         raise HTTPException(status_code=exc.http_status, detail=exc.detail)
     except HTTPException as exc:
         if desk is not None and exc.status_code == 400 and "insufficient" in (exc.detail or "").lower():
@@ -255,6 +266,11 @@ async def submit_order(
             await session.commit()
         raise
 
+    if order.status == "REJECTED":
+        # Self-trade prevention returns a REJECTED order instead of raising;
+        # surface it as the rejection it is.
+        raise HTTPException(status_code=409, detail="SELF_TRADE_PREVENTED")
+
     fills = (
         await session.execute(
             select(TradeFill).where(TradeFill.taker_order_id == order.id)
@@ -262,27 +278,31 @@ async def submit_order(
     ).scalars().all()
 
     # Pro Desks: update the desk position and mirror each fill to followers.
+    # Runs inside a SAVEPOINT so a mirroring failure rolls back only the
+    # mirroring writes — the desk's own fill and order stay committed.
     if desk is not None:
         try:
-            await desk_track_record.maybe_apply_breakers(session, desk)
-            for f in fills:
-                await copy_engine._update_desk_position(
-                    session,
-                    desk,
-                    market,
-                    token,
-                    Decimal(str(f.shares)),
-                    Decimal(str(f.price)),
-                    body.side,
-                )
-            if desk.status == "ACTIVE":
+            async with session.begin_nested():
+                await desk_track_record.maybe_apply_breakers(session, desk)
                 for f in fills:
-                    await copy_engine.mirror_source_fill(
-                        session, desk, f, market, token, broadcast_engine_events
+                    await copy_engine._update_desk_position(
+                        session,
+                        desk,
+                        market,
+                        token,
+                        Decimal(str(f.shares)),
+                        Decimal(str(f.price)),
+                        body.side,
                     )
+                if desk.status == "ACTIVE":
+                    for f in fills:
+                        await copy_engine.mirror_source_fill(
+                            session, desk, f, market, token, broadcast_engine_events
+                        )
         except Exception:
-            # Mirroring must never invalidate the desk's own fill.
-            pass
+            logger.exception(
+                "copy mirroring failed for desk %s (order %s)", desk.id, order.id
+            )
 
     payload = {
         "order": _order_payload(order),
