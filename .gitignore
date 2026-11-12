@@ -86,6 +86,7 @@ Thumbs.db
 # IDEs & Editors
 .vscode/
 .idea/
+.opencode/
 *.swp
 *.swo
 *~

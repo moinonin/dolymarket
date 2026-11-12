@@ -7,13 +7,13 @@ import {
   Coins,
   Gavel,
   Home,
-  LineChart,
   LogIn,
   LogOut,
   Menu,
   ShieldCheck,
   Tag,
   TrendingUp,
+  User,
   UserPlus,
   X,
 } from 'lucide-react'
@@ -37,6 +37,7 @@ import MarketDetailPage from './pages/MarketDetailPage'
 import LiveMarketsPage from './pages/LiveMarketsPage'
 import LiveMarketDetailPage from './pages/LiveMarketDetailPage'
 import AgxStakingPage from './pages/AgxStakingPage'
+import { Footer } from './components/Footer'
 
 // Tiny hash router — path segments after '#'.
 function useHashRoute(): [string[], (to: string) => void] {
@@ -81,12 +82,12 @@ function Shell() {
   let page: React.ReactNode
   if (section === 'home') {
     page = user ? (
-      <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
+      <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
     ) : (
       <HomePage
         onOpenEvent={openEvent}
         onOpenAuth={openAuth}
-        onBrowseMarkets={() => navigate('markets')}
+        onBrowseMarkets={() => navigate('live')}
       />
     )
   } else if (section === 'desks' && route[1]) {
@@ -105,12 +106,12 @@ function Shell() {
   } else if (section === 'settled') {
     page = <SettledPositionsPage />
   } else if (section === 'market' && route[1]) {
-    page = <MarketDetailPage marketId={route[1]} onBack={() => navigate('markets')} />
+    page = <MarketDetailPage marketId={route[1]} onBack={() => navigate('live')} />
   } else if (section === 'live' && route[1] === 'market' && route[2]) {
     page = (
       <LiveMarketDetailPage marketId={route[2]} onBack={() => navigate('live')} />
     )
-  } else if (section === 'live') {
+  } else if (section === 'live' || section === 'markets') {
     page = <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
   } else if (section === 'event' && route[1]) {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
@@ -123,9 +124,9 @@ function Shell() {
   } else if (section === 'activity') {
     page = <CopyActivityPage onOpenDesk={(id) => navigate(`desks/${id}`)} />
   } else if (section === 'admin') {
-    page = user?.is_admin ? <AdminPage /> : <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
+    page = user?.is_admin ? <AdminPage /> : <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
   } else {
-    page = <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
+    page = <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
   }
 
   return (
@@ -138,10 +139,7 @@ function Shell() {
         onLogout={logout}
       />
       {page}
-      <footer className="border-t border-border py-6 text-center text-[11px] text-muted-foreground">
-        Dolymarket — a demo trading environment. Funds are simulated; nothing here is
-        financial advice.
-      </footer>
+      <Footer onNavigate={navigate} />
     </div>
   )
 }
@@ -156,8 +154,7 @@ function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) 
 }
 
 const NAV_ITEMS = [
-  { key: 'markets', label: 'Markets', icon: LineChart },
-  { key: 'live', label: 'Live', icon: Activity },
+  { key: 'live', label: 'Live Markets', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'tags', label: 'Tags', icon: Tag },
   { key: 'trades', label: 'Trades', icon: TrendingUp },
@@ -170,8 +167,7 @@ const NAV_ITEMS = [
 
 const ANON_NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: Home },
-  { key: 'markets', label: 'Markets', icon: LineChart },
-  { key: 'live', label: 'Live', icon: Activity },
+  { key: 'live', label: 'Live Markets', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
   { key: 'tags', label: 'Tags', icon: Tag },
   { key: 'agx', label: 'AGX', icon: Coins },
@@ -196,7 +192,7 @@ function Nav({
       ? [...NAV_ITEMS, { key: 'admin', label: 'Admin', icon: ShieldCheck }]
       : NAV_ITEMS
     : ANON_NAV_ITEMS
-  const activeSection = user && section === 'home' ? 'markets' : section
+  const activeSection = (user && section === 'home') || section === 'markets' ? 'live' : section
 
   function go(key: string) {
     onNavigate(key)
@@ -207,7 +203,7 @@ function Nav({
     <nav className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
         <button
-          onClick={() => go(user ? 'markets' : 'home')}
+          onClick={() => go(user ? 'live' : 'home')}
           className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-foreground transition hover:text-accent"
         >
           <BarChart3 className="h-5 w-5 text-accent" />
@@ -232,7 +228,7 @@ function Nav({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <a
             href={import.meta.env.VITE_DOCS_URL || '/docs/'}
             target="_blank"
@@ -244,12 +240,20 @@ function Nav({
           </a>
           {user ? (
             <>
-              <span className="hidden items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] text-foreground sm:flex">
-                <ShieldCheck className="h-3 w-3 text-accent" />
-                {user.email || 'trader'}
-              </span>
+              <div
+                title={user.email || 'trader'}
+                className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-[11px] text-foreground bg-muted/40"
+              >
+                <User className="h-3.5 w-3.5 text-accent" />
+                {user.is_admin && (
+                  <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-bold text-emerald-400">
+                    ADMIN
+                  </span>
+                )}
+              </div>
               <button
                 onClick={onLogout}
+                title="Sign out"
                 className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
               >
                 <LogOut className="h-3 w-3" /> <span className="hidden sm:inline">Sign out</span>
@@ -305,8 +309,13 @@ function Nav({
           </div>
           {user && (
             <div className="mt-3 flex items-center gap-2 border-t border-slate-800/60 pt-3 text-[11px] text-slate-400">
-              <ShieldCheck className="h-3 w-3 text-emerald-400" />
-              {user.email || 'trader'}
+              <User className="h-3.5 w-3.5 text-accent" />
+              <span className="truncate">{user.email || 'trader'}</span>
+              {user.is_admin && (
+                <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-bold text-emerald-400">
+                  ADMIN
+                </span>
+              )}
             </div>
           )}
         </div>

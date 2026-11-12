@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api, type Event, type Ticker } from '../api/client'
 import { ProbabilityBar, Skeleton } from '../components/ui'
+import { HeroVisual } from '../components/HeroVisual'
 
 interface TickerRow {
   token_id: string
@@ -86,7 +87,7 @@ export default function HomePage({
   return (
     <div className="mx-auto w-full max-w-7xl px-6 pb-24">
       {/* Hero */}
-      <section className="relative overflow-hidden pt-16 pb-14">
+      <section className="relative overflow-hidden pt-16 pb-14 font-geist-mono">
         {/* Animated backdrop — drifting gradients + grid (swap for generated image later) */}
         <div
           className="hero-drift pointer-events-none absolute inset-0"
@@ -101,47 +102,61 @@ export default function HomePage({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 w-full opacity-70 [mask-image:linear-gradient(to_bottom,transparent,black_45%)] sm:h-56">
           <HeroCanvas />
         </div>
-        <div className="relative">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
-            <Sparkles className="h-3 w-3" />
-            Trade the probability, not the narrative
-          </span>
-          <h1 className="mt-5 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-            Prediction Markets with a{' '}
-            <span className="text-emerald-400">Real Matching Engine</span>
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Trade real outcomes on real order books. Prices move as the crowd
-            trades, fees shrink as the outcome becomes certain, and winning
-            shares redeem 1:1 in USDC.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => onOpenAuth('register')}
-              className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
-            >
-              Create free account
-            </button>
-            <button
-              onClick={onBrowseMarkets}
-              className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white"
-            >
-              Browse live markets
-            </button>
+        <div className="relative grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
+              <Sparkles className="h-3 w-3" />
+              Trade the probability, not the narrative
+            </span>
+            <h1 className="mt-5 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
+              Prediction Markets with a{' '}
+              <span className="text-emerald-400">Real Matching Engine</span>
+            </h1>
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400">
+              Trade real outcomes on real order books. Prices move as the crowd
+              trades, fees shrink as the outcome becomes certain, and winning
+              shares redeem 1:1 in USDC.
+            </p>
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => onOpenAuth('register')}
+                className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+              >
+                Create free account
+              </button>
+              <button
+                onClick={onBrowseMarkets}
+                className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white"
+              >
+                Browse live markets
+              </button>
+            </div>
+
+            <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <HeroStat
+                label="Open markets"
+                value={loading ? null : `${openMarkets}`}
+              />
+              <HeroStat
+                label="Markets resolved"
+                value={loading ? null : `${resolvedMarkets}`}
+              />
+              <HeroStat
+                label="Tracked volume"
+                value={loading ? null : `$${Math.round(trackedVolume).toLocaleString()}`}
+              />
+            </div>
           </div>
 
-          <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <HeroStat
-              label="Open markets"
-              value={loading ? null : `${openMarkets}`}
-            />
-            <HeroStat
-              label="Markets resolved"
-              value={loading ? null : `${resolvedMarkets}`}
-            />
-            <HeroStat
-              label="Tracked volume"
-              value={loading ? null : `$${Math.round(trackedVolume).toLocaleString()}`}
+          <div className="lg:col-span-5">
+            <HeroVisual
+              onExplore={() => {
+                if (preview[0]?.slug) {
+                  onOpenEvent(preview[0].slug)
+                } else {
+                  onBrowseMarkets()
+                }
+              }}
             />
           </div>
         </div>
