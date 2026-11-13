@@ -84,7 +84,7 @@ export default function DeskDetailPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <button
         onClick={onBack}
         className="mb-4 flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-slate-200"

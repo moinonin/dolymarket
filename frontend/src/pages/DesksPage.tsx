@@ -71,7 +71,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <section className="pt-10">
         <h1 className="text-2xl font-bold text-white">Live desks</h1>
         <p className="mt-1 text-sm text-slate-400">
@@ -135,7 +135,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
         )}
 
         {desks === null ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="rounded-2xl border border-slate-800/70 p-5">
                 <Skeleton className="mb-3 h-3 w-20" />
@@ -154,7 +154,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
             {desks.map((d) => (
               <button
                 key={d.id}

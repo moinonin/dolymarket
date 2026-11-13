@@ -85,7 +85,7 @@ export default function HomePage({
   const trackedVolume = events.reduce((acc, e) => acc + (e.total_volume || 0), 0)
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24">
       {/* Hero */}
       <section className="relative overflow-hidden pt-16 pb-14 font-geist-mono">
         {/* Animated backdrop — drifting gradients + grid (swap for generated image later) */}
@@ -193,7 +193,7 @@ export default function HomePage({
             </button>
           </div>
         ) : loading ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="rounded-2xl border border-slate-800/70 p-5">
                 <Skeleton className="mb-3 h-3 w-20" />
@@ -213,7 +213,7 @@ export default function HomePage({
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
             {preview.map((ev) => (
               <MarketPreviewCard
                 key={ev.id}
@@ -235,7 +235,7 @@ export default function HomePage({
           Back a view with real orders, watch the price move, and if you're
           right, your shares settle at exactly $1.00.
         </p>
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
           {FEATURES.map((f) => (
             <div
               key={f.title}

@@ -74,7 +74,7 @@ export default function LiveMarketsPage({
   }, [markets, search])
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -192,7 +192,7 @@ export default function LiveMarketsPage({
       )}
 
       {loading ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
               <Skeleton className="h-4 w-3/4" />
@@ -215,7 +215,7 @@ export default function LiveMarketsPage({
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
           {filtered.map((m) => (
             <LiveMarketCard key={m.id} market={m} onOpen={() => onOpenMarket(m.id)} />
           ))}

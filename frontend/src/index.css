@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 @theme {
+  --breakpoint-3xl: 120rem; /* 1920px */
+  --breakpoint-4xl: 160rem; /* 2560px */
+
   /* Design tokens (ui-ux-pro-max / Dolymarket dark OLED palette) */
   --color-primary: #0f172a;
   --color-on-primary: #ffffff;

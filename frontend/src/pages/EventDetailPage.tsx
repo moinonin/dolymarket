@@ -94,7 +94,7 @@ export default function EventDetailPage({
 
   const category = event.category || 'Crypto'
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <button
         onClick={() => onNavigate('/markets')}
         className="mb-5 flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-slate-200"
@@ -228,7 +228,7 @@ function TradingPanel({
   const asks = useMemo(() => levelList(book?.asks || []), [book])
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px_320px]">
+    <div className="grid gap-6 lg:grid-cols-[1fr_360px_320px] 2xl:grid-cols-[1fr_400px_360px]">
       {/* Chart + book column */}
       <div className="space-y-6">
         <div className="flex justify-end">

@@ -24,8 +24,8 @@ export function Footer({
 
   return (
     <footer className="border-t border-slate-800/80 bg-slate-950/70 pt-14 pb-10 text-xs font-geist-mono">
-      <div className="mx-auto max-w-7xl px-6">
-        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
+      <div className="mx-auto max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12">
+        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
           {/* Brand & System Status */}
           <div className="sm:col-span-2 lg:col-span-2">
             <button

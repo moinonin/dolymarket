@@ -100,7 +100,7 @@ export default function MarketsPage({
   }, [category, statusTab, sort, search])
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       {/* Hero */}
       <section className="mb-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -190,7 +190,7 @@ export default function MarketsPage({
       )}
 
       {loading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-44 rounded-2xl border border-slate-800/70 p-5">
               <Skeleton className="mb-3 h-4 w-24" />
@@ -210,7 +210,7 @@ export default function MarketsPage({
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
           {events.map((ev) => (
             <EventCard key={ev.id} event={ev} ticker={tickers[ev.id]} onOpen={onOpenEvent} />
           ))}

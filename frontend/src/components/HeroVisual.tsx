@@ -82,7 +82,7 @@ export function HeroVisual({
       onMouseMove={handleMouseMove}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={handleMouseLeave}
-      className="relative mx-auto w-full max-w-lg select-none [perspective:1200px]"
+      className="relative mx-auto w-full max-w-lg lg:max-w-xl xl:max-w-2xl select-none [perspective:1200px]"
     >
       {/* Background ambient neon aura */}
       <motion.div

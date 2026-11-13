@@ -43,7 +43,7 @@ export default function UserTradesPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <h1 className="text-2xl font-bold text-white">My trades</h1>
       <p className="mt-1 text-sm text-slate-400">Your execution history. Past results, not indicative of future results.</p>
       {error && <div className="mt-4 rounded-xl border border-red-800/60 bg-red-950/40 p-4 text-sm text-red-200">{error}</div>}

@@ -41,7 +41,7 @@ export default function ResolutionPage() {
   }, [])
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <header className="mb-8">
         <div className="flex items-center gap-2.5">
           <Gavel className="h-5 w-5 text-amber-400" />

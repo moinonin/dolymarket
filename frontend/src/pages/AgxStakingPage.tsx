@@ -163,7 +163,7 @@ export default function AgxStakingPage() {
   )
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-white">

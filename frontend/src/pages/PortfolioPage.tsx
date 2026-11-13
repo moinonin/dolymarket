@@ -144,9 +144,9 @@ export default function PortfolioPage({
     ) + (balance?.balance ?? 0)
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       {/* Summary cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 2xl:gap-5">
         <SummaryCard
           icon={<TrendingUp className="h-4 w-4 text-blue-400" />}
           label="Portfolio Value"

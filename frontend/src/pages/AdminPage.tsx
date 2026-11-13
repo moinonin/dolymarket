@@ -27,7 +27,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('markets')
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <header className="mb-6">
         <div className="flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-amber-400" />

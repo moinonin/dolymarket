@@ -205,7 +205,7 @@ function Nav({
 
   return (
     <nav className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-14 w-full max-w-[1840px] items-center justify-between px-4 sm:px-6 lg:px-8 2xl:px-12">
         <button
           onClick={() => go(user ? 'live' : 'home')}
           className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-foreground transition hover:text-accent"

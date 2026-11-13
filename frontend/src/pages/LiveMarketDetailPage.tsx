@@ -149,7 +149,7 @@ export default function LiveMarketDetailPage({
   if (!market) return null
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <button onClick={onBack} className="mb-4 text-xs text-slate-400 transition hover:text-slate-200">
         ← Back
       </button>
@@ -264,7 +264,7 @@ export default function LiveMarketDetailPage({
         <Stat label="Volume" value={`$${market.volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
       </section>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px] 2xl:grid-cols-[1fr_420px]">
         <div className="space-y-6">
           <LivePriceChart candles={candles} />
           {token && (

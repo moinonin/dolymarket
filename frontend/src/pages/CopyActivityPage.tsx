@@ -40,7 +40,7 @@ export default function CopyActivityPage({ onOpenDesk }: { onOpenDesk: (id: stri
   }, [load])
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-8">
+    <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
