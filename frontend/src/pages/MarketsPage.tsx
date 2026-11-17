@@ -4,11 +4,14 @@ import {
   CircleDollarSign,
   Gavel,
   Loader2,
+  Plus,
   Search,
   TrendingUp,
 } from 'lucide-react'
 import { api, type Event, type Market, type OutcomeToken, type Ticker } from '../api/client'
+import { useAuth } from '../auth/AuthProvider'
 import { ProbabilityBar, Skeleton, StatusPill } from '../components/ui'
+import { useToast } from '../context/toast'
 
 const CATEGORIES = ['All', 'Politics', 'Crypto', 'Sports', 'Macro', 'Pop Culture', 'Tech']
 const STATUS_TABS = [
@@ -37,6 +40,8 @@ export default function MarketsPage({
   onOpenEvent: (slug: string) => void
   onOpenLive?: () => void
 }) {
+  const { user, openAuth } = useAuth()
+  const { push } = useToast()
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +50,50 @@ export default function MarketsPage({
   const [sort, setSort] = useState('volume')
   const [search, setSearch] = useState('')
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
+  const [showCreate, setShowCreate] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [cTitle, setCTitle] = useState('')
+  const [cQuestion, setCQuestion] = useState('')
+  const [cCategory, setCCategory] = useState('Crypto')
+  const [cCriteria, setCCriteria] = useState('')
+  const [cEndDate, setCEndDate] = useState('')
+  const [cLiquidity, setCLiquidity] = useState('10')
+  const [cFeed, setCFeed] = useState('')
+  const [cRule, setCRule] = useState('>=')
+  const [cThreshold, setCThreshold] = useState('')
+
+  async function handleCreateCommunity(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user) {
+      openAuth('login')
+      return
+    }
+    setCreating(true)
+    try {
+      const liq = Number(cLiquidity) || 0
+      const thr = cThreshold.trim() !== '' ? Number(cThreshold) : undefined
+      const res = await api.createCommunityMarket({
+        title: cTitle.trim(),
+        question: cQuestion.trim(),
+        category: cCategory,
+        resolution_criteria: cCriteria.trim(),
+        outcomes: ['YES', 'NO'],
+        ...(cEndDate ? { end_date: new Date(cEndDate).toISOString() } : {}),
+        ...(liq > 0 ? { initial_liquidity_usdc: liq } : {}),
+        ...(cFeed.trim() ? { oracle_feed: cFeed.trim(), oracle_comparator: cRule } : {}),
+        ...(thr !== undefined && !Number.isNaN(thr) ? { oracle_threshold: thr } : {}),
+      })
+      push('Community market created!', 'info')
+      setShowCreate(false)
+      if (res.slug) {
+        onOpenEvent(res.slug)
+      }
+    } catch (err: any) {
+      push(err?.message || 'Could not create community market', 'error')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -150,7 +199,114 @@ export default function MarketsPage({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => (user ? setShowCreate((v) => !v) : openAuth('login'))}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 py-2 text-xs font-bold text-slate-950 transition hover:bg-emerald-400"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create Community Market
+          </button>
         </div>
+        {showCreate && (
+          <form
+            onSubmit={handleCreateCommunity}
+            className="grid gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-5 sm:grid-cols-2"
+          >
+            <input
+              required
+              minLength={5}
+              value={cTitle}
+              onChange={(e) => setCTitle(e.target.value)}
+              placeholder="Event title (e.g. BTC >= $100k by Dec)"
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <input
+              required
+              minLength={5}
+              value={cQuestion}
+              onChange={(e) => setCQuestion(e.target.value)}
+              placeholder="Market question (e.g. Will BTC close >= $100,000?)"
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <select
+              value={cCategory}
+              onChange={(e) => setCCategory(e.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              {CATEGORIES.filter((c) => c !== 'All').map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <input
+              type="datetime-local"
+              value={cEndDate}
+              onChange={(e) => setCEndDate(e.target.value)}
+              title="End date (UTC)"
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <textarea
+              required
+              minLength={10}
+              rows={2}
+              value={cCriteria}
+              onChange={(e) => setCCriteria(e.target.value)}
+              placeholder="Resolution criteria (source, predicate, UTC deadline)..."
+              className="sm:col-span-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={cLiquidity}
+              onChange={(e) => setCLiquidity(e.target.value)}
+              placeholder="Initial LP USDC (>= 10 to activate)"
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                value={cFeed}
+                onChange={(e) => setCFeed(e.target.value)}
+                placeholder="gate:BTC_USDT"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
+              />
+              <select
+                value={cRule}
+                onChange={(e) => setCRule(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
+              >
+                <option value=">=">&gt;=</option>
+                <option value=">">&gt;</option>
+                <option value="<=">&lt;=</option>
+                <option value="<">&lt;</option>
+              </select>
+              <input
+                type="number"
+                step="any"
+                value={cThreshold}
+                onChange={(e) => setCThreshold(e.target.value)}
+                placeholder="Threshold"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div className="sm:col-span-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating}
+                className="rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+              >
+                {creating ? 'Creating…' : 'Launch Market'}
+              </button>
+            </div>
+          </form>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-1.5">
             {STATUS_TABS.map((t) => (

@@ -37,26 +37,18 @@ nav:
     - Hotkeys: trading/hotkeys.md
   - Markets & data:
     - Discover markets: markets/discover.md
-    - Market details: markets/market-details.md
+    - Market details & Community: markets/market-details.md
     - Prices & order book: markets/prices-orderbook.md
     - Real-time data: markets/realtime.md
-    - Live DexBuilder data: live-data.md
-    - DexBuilder authentication: dexbuilder-auth.md
+    - Live market data: live-data.md
   - Portfolio:
     - Positions: portfolio/positions.md
     - Settled positions: portfolio/settled.md
     - Collateral: portfolio/collateral.md
-  - Resolution: resolution.md
+  - Resolution & Oracle: resolution.md
   - Pro Desks & Market Maker: pro-desks.md
   - AGX Staking: agx-staking.md
-  - Operations console: admin-console.md
   - Authentication: auth.md
   - Do's and don'ts: do-dont.md
   - Disclaimers: disclaimers.md
-  - API reference: api-reference.md
   - FAQ: faq.md
-  - Engineering:
-    - Sprints & roadmap: SPRINTS.md
-    - Improvement plan: improve.md
-    - DexBuilder TODO: dexbuilder-todo.md
-    - Security audit (2026-11): security-audit.md

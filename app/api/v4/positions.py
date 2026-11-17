@@ -174,7 +174,9 @@ async def redeem(
     session: AsyncSession = Depends(get_async_session),
 ):
     position = (
-        await session.execute(select(Position).where(Position.id == position_id))
+        await session.execute(
+            select(Position).where(Position.id == position_id).with_for_update()
+        )
     ).scalar_one_or_none()
     if position is None:
         raise HTTPException(status_code=404, detail="Position not found")
@@ -192,7 +194,7 @@ async def redeem(
 
     payout = await redeem_position(session, position)
 
-    account = await collateral.get_or_create_account(session, user.id)
+    account = await collateral.get_or_create_account(session, user.id, for_update=True)
     await collateral.credit_payout(
         session, account, to_dec(payout), reference=position.id
     )

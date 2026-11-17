@@ -1,30 +1,31 @@
-# Resolution & Oracle (`#resolution`)
+# Resolution & Oracle
 
-AlgoXen resolves markets through a bonded **optimistic oracle** (`app/services/settlement.py`) augmented with **pre-trade Oracle Clarity scoring** and **deterministic price/event feeds** (`app/services/oracle.py`).
+AlgoXen resolves markets through an **automated optimistic oracle** backed by **pre-trade Oracle Clarity scoring** and **verifiable price feeds**.
 
 ---
 
 ## 1. Resolution Lifecycle
 
-1. **Close Market** (`CLOSED`): Trading halts prior to proposal.
-2. **Propose Outcome** (`IN_RESOLUTION`): An admin/oracle stakes a proposal bond (`$50` USDC) and asserts `proposed_outcome_index`, opening a **2-hour dispute window** (`DISPUTE_WINDOW`).
-3. **Dispute** (`DISPUTED`, optional): Anyone posting a counter-bond `>= proposal bond` before `dispute_deadline` challenges the assertion.
-4. **Finalize** (`RESOLVED`): Sets `winning_outcome_index` on the market and `FINALIZED` on `OracleDispute`. Winning shares redeem 1:1 for **`$1.00 USDC`** (`$0.00` for losing shares); AMM LPs can redeem their proportional pool + fee share (`POST /api/v4/prediction/amm/{market_id}/redeem`).
+1. **Close Market (`CLOSED`)**: When a market's end time passes, trading closes automatically and any resting open limit orders are cancelled with locked funds released.
+2. **Propose Outcome (`IN_RESOLUTION`)**: Markets configured with a price feed (such as `gate:BTC_USDT` or `coingecko:bitcoin`) automatically evaluate the closing price and propose the winning outcome, opening a **2-hour dispute window**.
+3. **Dispute (`DISPUTED`, optional)**: During the 2-hour window, any signed-in trader can challenge a proposed outcome by staking a **100 AGX counter-bond** on the **Resolution** page. Disputed markets pause for manual review; if your dispute is upheld, your 100 AGX stake is returned plus a **20% AGX reward**.
+4. **Finalize (`RESOLVED`)**: Uncontested proposals finalize automatically once the 2-hour window expires. Winning shares redeem 1:1 for **$1.00 USDC** (`$0.00` for losing shares), and AMM liquidity providers can claim their pool share via **Redeem LP**.
 
 ---
 
-## 2. Deterministic Resolution Feeds (`POST /api/v4/prediction/resolution/resolve-feed`)
+## 2. Automated Price Feeds
 
-Instead of relying solely on manual proposals for objective price/event markets, admins/oracles can evaluate a deterministic feed:
-- Supported providers: `gate:<PAIR>` (e.g., `gate:BTC_USDT`), `coingecko:<COIN_ID>`, and `static:<VALUE>` (for deterministic testing).
-- Evaluates `observed_value <comparator> threshold` (`>=`, `>`, `<=`, `<`) -> outcome index `0` (`YES`) or `1` (`NO`).
-- Persists verifiable proof JSON (`feed`, `observed_value`, `threshold`, `comparator`, `source_url`, `observed_at`) into `OracleDispute.evidence_json`.
+Community and local markets can attach a deterministic feed at creation:
+- Supported providers: `gate:<PAIR>` (e.g. `gate:BTC_USDT`) and `coingecko:<COIN_ID>` (e.g. `coingecko:bitcoin`).
+- Rule format: `observed_value <comparator> threshold` (`>=`, `>`, `<=`, `<`) → resolves `YES` or `NO`.
+- Every automated proposal attaches verifiable proof (feed name, observed value, threshold, source URL, and timestamp) directly on the **Resolution** page.
 
 ---
 
-## 3. Resolution UI (`ResolutionPage`)
+## 3. Resolution Page
 
-Each card on `#resolution` (`frontend/src/pages/ResolutionPage.tsx`) displays:
-- Event title, question, `StatusPill`, proposed winning outcome, proposer address, bond amount, and live dispute countdown.
-- **`Oracle Proof / Evidence` box**: Displays attached `feed` comparison, `rationale`, and `source_url` from `evidence_json` so reviewers never rule-lawyer blind.
-- **`Stake Counter-Bond & Dispute`** CTA while in `PROPOSED` state.
+Visit **Resolution** in the top navigation to view:
+- Markets currently in their 2-hour challenge window or under dispute.
+- Proposed winning outcome, bond details (`100 AGX` to dispute), and live countdown timer.
+- **Oracle Proof / Evidence** showing the exact price observation and source URL.
+- **Stake 100 AGX Counter-Bond & Dispute** button while a proposal is active.

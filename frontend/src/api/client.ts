@@ -17,10 +17,11 @@ export class ApiError extends Error {
 // Domain models (mirroring SQLAlchemy schemas)
 // ---------------------------------------------------------------------------
 
-export type EventStatus = 'ACTIVE' | 'CLOSED' | 'RESOLVED' | 'UNFUNDED';
+export type EventStatus = 'ACTIVE' | 'CLOSED' | 'RESOLVED' | 'UNFUNDED' | 'EXPIRED';
 export type MarketStatus =
   | 'ACTIVE'
   | 'UNFUNDED'
+  | 'EXPIRED'
   | 'SUSPENDED'
   | 'CLOSED'
   | 'IN_RESOLUTION'
@@ -47,6 +48,8 @@ export interface Market {
   creator_user_id?: string | null;
   resolution_criteria?: string | null;
   oracle_feed?: string | null;
+  oracle_threshold?: number | null;
+  oracle_comparator?: string | null;
   clarity?: { score: number; grade: 'HIGH' | 'MEDIUM' | 'LOW'; flags: string[] };
   liquidity_funded_usdc?: number;
   neg_risk: boolean;
@@ -705,6 +708,9 @@ export class ApiClient {
     outcomes?: string[];
     end_date?: string;
     initial_liquidity_usdc?: number;
+    oracle_feed?: string;
+    oracle_threshold?: number;
+    oracle_comparator?: string;
   }): Promise<any> {
     return this.request('/api/v4/prediction/community/markets', {
       method: 'POST',
@@ -716,6 +722,77 @@ export class ApiClient {
     return this.request(`/api/v4/prediction/community/markets/${encodeURIComponent(marketId)}/fund`, {
       method: 'POST',
       body: JSON.stringify({ amount_usdc: amountUsdc }),
+    });
+  }
+
+  // ---- Hybrid LMSR AMM & LP ------------------------------------------------
+
+  getAmmPool(marketId: string): Promise<{
+    market_id: string;
+    b: number;
+    q_yes: number;
+    q_no: number;
+    pool_usdc: number;
+    fees_collected_usdc: number;
+    total_lp_shares: number;
+    fee_bps: number;
+    yes_price: number;
+    no_price: number;
+  }> {
+    return this.request(`/api/v4/prediction/amm/${encodeURIComponent(marketId)}`);
+  }
+
+  quoteAmm(
+    marketId: string,
+    outcomeIndex: number,
+    side: 'BUY' | 'SELL',
+    shares: number,
+  ): Promise<{
+    market_id: string;
+    outcome_index: number;
+    side: string;
+    shares: number;
+    notional_usdc: number;
+    fee_usdc: number;
+    total_usdc: number;
+    avg_price: number;
+    post_yes_price: number;
+    post_no_price: number;
+  }> {
+    const qs = new URLSearchParams({
+      outcome_index: String(outcomeIndex),
+      side,
+      shares: String(shares),
+    });
+    return this.request(`/api/v4/prediction/amm/${encodeURIComponent(marketId)}/quote?${qs}`);
+  }
+
+  depositAmmLiquidity(marketId: string, amountUsdc: number): Promise<any> {
+    return this.request(`/api/v4/prediction/amm/${encodeURIComponent(marketId)}/deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ amount_usdc: amountUsdc }),
+    });
+  }
+
+  tradeAmm(
+    marketId: string,
+    tokenId: string,
+    side: 'BUY' | 'SELL',
+    shares: number,
+  ): Promise<any> {
+    return this.request(`/api/v4/prediction/amm/${encodeURIComponent(marketId)}/trade`, {
+      method: 'POST',
+      body: JSON.stringify({ token_id: tokenId, side, shares }),
+    });
+  }
+
+  redeemAmmLp(marketId: string): Promise<{
+    market_id: string;
+    redeemed_shares: number;
+    payout_usdc: number;
+  }> {
+    return this.request(`/api/v4/prediction/amm/${encodeURIComponent(marketId)}/redeem`, {
+      method: 'POST',
     });
   }
 
@@ -1274,7 +1351,7 @@ export class ApiClient {
     });
   }
 
-  disputeProposal(marketId: string, counterBond = 50.0): Promise<any> {
+  disputeProposal(marketId: string, counterBond = 100.0): Promise<any> {
     return this.request('/api/v4/prediction/resolution/dispute', {
       method: 'POST',
       body: JSON.stringify({ market_id: marketId, counter_bond: counterBond }),
@@ -1298,6 +1375,31 @@ export class ApiClient {
     return this.request('/api/v4/prediction/resolution/markets');
   }
 
+  resolveWithFeed(
+    marketId: string,
+    feed: string,
+    threshold: number,
+    comparator = '>=',
+    autoFinalize = false,
+  ): Promise<any> {
+    return this.request('/api/v4/prediction/resolution/resolve-feed', {
+      method: 'POST',
+      body: JSON.stringify({
+        market_id: marketId,
+        feed,
+        threshold,
+        comparator,
+        auto_finalize: autoFinalize,
+      }),
+    });
+  }
+
+  runResolutionTick(): Promise<{ closed: number; expired: number; proposed: number; finalized: number }> {
+    return this.request('/api/v4/prediction/resolution/run-tick', {
+      method: 'POST',
+    });
+  }
+
   createEvent(body: {
     slug: string;
     title: string;
@@ -1317,6 +1419,9 @@ export class ApiClient {
     question: string;
     outcomes: string[];
     neg_risk?: boolean;
+    oracle_feed?: string;
+    oracle_threshold?: number;
+    oracle_comparator?: string;
   }): Promise<any> {
     return this.request('/api/v4/prediction/admin/markets', {
       method: 'POST',

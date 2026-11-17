@@ -1,0 +1,75 @@
+task_id: automate-market-resolution-end-to-end
+summary: "Automate local and community market resolution end-to-end with backend worker and frontend UI"
+business_rules:
+  - name: "Oracle Resolution Parameters"
+    formula: "Markets support oracle_feed, oracle_threshold, and oracle_comparator fields."
+  - name: "Idempotent Background Worker"
+    formula: "Lifespan worker periodically closes ACTIVE markets, proposes resolution for CLOSED markets via oracle, and finalizes uncontested IN_RESOLUTION markets."
+test_fixtures: []
+environment:
+  packages: ["fastapi", "sqlalchemy", "pydantic", "pytest", "httpx"]
+  env_vars:
+    DATABASE_URL: "sqlite:///./test.db"
+    JWT_SECRET: "test-secret-1234567890abcdef"
+  services: []
+global_verification:
+  - "pytest tests/"
+local_goals:
+  - id: L1
+    description: "CREATE: Market model fields for oracle resolution"
+    type: create
+    blueprint: |
+      from sqlalchemy import Column, String, Numeric
+      from .database import Base
+      
+      class MarketModelExtension:
+          oracle_feed = Column(String, nullable=True)
+          oracle_threshold = Column(Numeric, nullable=True)
+          oracle_comparator = Column(String, nullable=True)
+    verification:
+      type: content
+      path: "src/models/market_extension.py"
+      expect:
+        content_contains: "oracle_threshold"
+    acceptance_criteria:
+      - description: "Market model includes oracle fields"
+  - id: L2
+    description: "CREATE: Background resolution worker implementation"
+    type: create
+    blueprint: |
+      import asyncio
+      import logging
+      from datetime import datetime
+      
+      logger = logging.getLogger(__name__)
+      
+      async def run_resolution_worker():
+          while True:
+              try:
+                  logger.info("Running resolution worker loop")
+              except Exception as e:
+                  logger.error(f"Error in resolution worker: {e}")
+              await asyncio.sleep(60)
+    verification:
+      type: content
+      path: "src/workers/resolution_worker.py"
+      expect:
+        content_contains: "run_resolution_worker"
+    acceptance_criteria:
+      - description: "Background worker loop is defined"
+  - id: L3
+    description: "VERIFY: Market resolution API endpoint returns success"
+    verification:
+      type: http
+      method: POST
+      url: "http://localhost:8000/api/markets/resolve-test"
+      body: '{"market_id": 1}'
+      expect:
+        status: 201
+    acceptance_criteria:
+      - description: "Endpoint responds correctly"
+context:
+  language: Python
+  framework: FastAPI
+  orm: SQLAlchemy
+  test_framework: pytest

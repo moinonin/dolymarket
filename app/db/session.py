@@ -161,14 +161,44 @@ async def get_async_session() -> AsyncIterator[AsyncSession | _LibsqlAsyncSessio
                 logging.getLogger("app.db").exception("post_commit callback failed")
 
 
+def _ensure_market_oracle_columns(sync_conn) -> None:
+    """Idempotently add oracle automation columns to existing `markets` tables."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(sync_conn)
+    if not inspector.has_table("markets"):
+        return
+    cols = {c["name"] for c in inspector.get_columns("markets")}
+    if "oracle_threshold" not in cols:
+        sync_conn.execute(text("ALTER TABLE markets ADD COLUMN oracle_threshold NUMERIC(18, 6)"))
+    if "oracle_comparator" not in cols:
+        sync_conn.execute(text("ALTER TABLE markets ADD COLUMN oracle_comparator VARCHAR(4)"))
+    if inspector.has_table("oracle_disputes"):
+        try:
+            sync_conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_dispute_per_market "
+                    "ON oracle_disputes (market_id) WHERE status IN ('PROPOSED', 'DISPUTED')"
+                )
+            )
+        except Exception:
+            pass
+
+
 async def init_db() -> None:
     from app.models.domain import Base
 
     if IS_LIBSQL:
-        await asyncio.to_thread(Base.metadata.create_all, engine)
+        def _init_sync():
+            Base.metadata.create_all(engine)
+            with engine.begin() as conn:
+                _ensure_market_oracle_columns(conn)
+
+        await asyncio.to_thread(_init_sync)
     else:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_ensure_market_oracle_columns)
 
 
 async def drop_db() -> None:
@@ -186,11 +216,13 @@ async def create_test_db() -> None:
     from app.core.ratelimit import rate_limiter
     from app.engine.book import reset_sequence_state
     from app.models.domain import Base
+    from app.services.resolution_worker import _oracle_retry_state
     from app.ws.sequence import stream_sequencer
 
     rate_limiter.reset()
     reset_sequence_state()
     stream_sequencer.reset()
+    _oracle_retry_state.clear()
     if IS_LIBSQL:
         await asyncio.to_thread(Base.metadata.drop_all, engine)
         await asyncio.to_thread(Base.metadata.create_all, engine)

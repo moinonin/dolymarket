@@ -438,6 +438,57 @@ function HeroCanvas() {
       yes.push(v)
     }
 
+    let liveTokenId: string | null = null
+    let liveMarketId: string | null = null
+    let hasLiveSeries = false
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        const lm = await api.getLiveMarkets({ status: 'active', limit: 5 })
+        if (cancelled) return
+        const pick = (lm.markets || []).find((m) => m.tokens?.[0]?.token_id)
+        const tokId = pick?.tokens?.[0]?.token_id
+        if (!pick || !tokId) return
+        liveMarketId = pick.id
+        liveTokenId = tokId
+        const hist = await api.getLivePriceHistory(tokId, '1h')
+        if (cancelled) return
+        const pts = (hist.candles || [])
+          .map((c: any) => Number(c.close ?? c.p ?? c.price))
+          .filter((n) => Number.isFinite(n) && n > 0 && n < 1)
+        if (pts.length >= 10) {
+          const min = Math.min(...pts)
+          const max = Math.max(...pts)
+          if (max - min >= 0.005) {
+            const tail = pts.slice(-(POINTS + 1))
+            while (tail.length <= POINTS) {
+              tail.unshift(tail[0])
+            }
+            yes = tail
+            v = tail[tail.length - 1]
+            hasLiveSeries = true
+          }
+        }
+      } catch {
+        /* keep fallback series */
+      }
+    })()
+
+    const livePoll = window.setInterval(async () => {
+      if (cancelled || !liveMarketId || !liveTokenId || !hasLiveSeries) return
+      try {
+        const res = await api.getLiveMarket(liveMarketId)
+        const tok = res.tokens?.find((t) => t.token_id === liveTokenId)
+        if (tok?.price != null && Number.isFinite(tok.price)) {
+          v = clamp(tok.price)
+          yes = [...yes.slice(1), v]
+        }
+      } catch {
+        /* keep last */
+      }
+    }, 5000)
+
     const dpr = Math.min(2, window.devicePixelRatio || 1)
     const resize = () => {
       canvas.width = canvas.clientWidth * dpr
@@ -477,7 +528,7 @@ function HeroCanvas() {
     const frame = (t: number) => {
       const dt = Math.min(100, t - last)
       last = t
-      if (!reduced) {
+      if (!reduced && !hasLiveSeries) {
         shift += dt / STEP_MS
         while (shift >= 1) {
           shift -= 1
@@ -496,6 +547,8 @@ function HeroCanvas() {
     raf = requestAnimationFrame(frame)
 
     return () => {
+      cancelled = true
+      window.clearInterval(livePoll)
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', resize)
     }

@@ -15,6 +15,18 @@ PROHIBITED_CATEGORIES = frozenset({"assassination", "violence", "illegal", "terr
 MIN_COMMUNITY_FUNDING_USDC = Decimal("10.0000")
 
 
+def contains_prohibited_content(*texts: str | None) -> str | None:
+    """Return matching prohibited keyword if any text violates content rules."""
+    for raw in texts:
+        if not raw:
+            continue
+        lower = raw.lower()
+        for term in PROHIBITED_CATEGORIES:
+            if term in lower:
+                return term
+    return None
+
+
 def condition_id_from_seed(seed: str) -> str:
     return "0x" + hashlib.sha1(seed.encode()).hexdigest()
 

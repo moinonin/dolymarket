@@ -167,6 +167,7 @@ async def lifespan(app: FastAPI):
     from app.db.seed import seed
     from app.services import agx as agx_service
     from app.services.market_maker import mm_manager
+    from app.services.resolution_worker import resolution_worker_loop
 
     async with AsyncSessionLocal() as session:
         await seed(session)
@@ -189,10 +190,14 @@ async def lifespan(app: FastAPI):
                 logging.getLogger("app.main").exception("agx epoch rollover failed")
 
     rollover_task = asyncio.create_task(_epoch_rollover_loop())
+    resolution_task = asyncio.create_task(resolution_worker_loop())
     try:
         yield
     finally:
+        resolution_task.cancel()
         rollover_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await resolution_task
         with contextlib.suppress(asyncio.CancelledError):
             await rollover_task
         await mm_manager.stop_all()

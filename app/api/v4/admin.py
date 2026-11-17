@@ -8,8 +8,9 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,17 @@ class CreateEventRequest(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
 
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _valid_iso_dates(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        try:
+            datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("Invalid ISO-8601 datetime") from exc
+        return v.strip()
+
 
 class CreateMarketRequest(BaseModel):
     event_slug: str
@@ -37,6 +49,26 @@ class CreateMarketRequest(BaseModel):
     tick_size: float = 0.01
     min_order_size: float = 5.0
     neg_risk: bool = False
+    oracle_feed: str | None = Field(default=None, max_length=120)
+    oracle_threshold: Decimal | None = Field(default=None)
+    oracle_comparator: str | None = Field(default=None, max_length=4)
+
+    @field_validator("oracle_threshold")
+    @classmethod
+    def _finite_threshold(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and not v.is_finite():
+            raise ValueError("must be finite")
+        return v
+
+    @field_validator("oracle_comparator")
+    @classmethod
+    def _valid_comparator(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        cleaned = v.strip()
+        if cleaned not in (">=", ">", "<=", "<"):
+            raise ValueError("comparator must be one of >=, >, <=, <")
+        return cleaned
 
 
 def _condition_id(market_seed: str) -> str:
@@ -68,12 +100,11 @@ async def close_market(
             status_code=409,
             detail=f"Market cannot be closed from status {market.status}",
         )
+    from app.services import settlement
+
     market.status = "CLOSED"
-    event = (
-        await session.execute(select(Event).where(Event.id == market.event_id))
-    ).scalar_one_or_none()
-    if event is not None:
-        event.status = "CLOSED"
+    await settlement.cancel_market_orders(session, market.id)
+    await settlement.sync_event_status(session, market.event_id)
     await session.flush()
     return {"market_id": market.id, "status": market.status}
 
@@ -129,6 +160,17 @@ async def create_market(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    from app.services import oracle
+
+    validated_feed: str | None = None
+    if body.oracle_feed and body.oracle_feed.strip():
+        validated_feed = oracle.validate_oracle_feed(body.oracle_feed, allow_static=True)
+        if body.oracle_threshold is None:
+            raise HTTPException(
+                status_code=422,
+                detail="oracle_threshold is required when oracle_feed is specified",
+            )
+
     market = Market(
         event_id=event.id,
         question=body.question,
@@ -137,6 +179,9 @@ async def create_market(
         min_order_size=max(0.0, body.min_order_size),
         status="ACTIVE",
         neg_risk=body.neg_risk,
+        oracle_feed=validated_feed,
+        oracle_threshold=body.oracle_threshold,
+        oracle_comparator=(body.oracle_comparator or ">=") if body.oracle_threshold is not None else None,
         condition_id=_condition_id(f"{body.event_slug}:{body.question}:{uuid.uuid4()}"),
     )
     session.add(market)

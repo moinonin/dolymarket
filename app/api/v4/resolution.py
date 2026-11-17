@@ -3,6 +3,7 @@
 Resolution is a privileged operation: only admins/oracles may propose,
 dispute or finalize, because finalize pays out every winning position.
 """
+import logging
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,11 +11,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_admin
+from app.api.deps import get_current_user, require_admin
 from app.db.session import get_async_session
 from app.models.domain import Event, Market, OracleDispute, User
-from app.services import oracle, settlement
+from app.services import agx, oracle, settlement
 
+logger = logging.getLogger("app.resolution")
 router = APIRouter(prefix="/api/v4/prediction/resolution", tags=["resolution"])
 
 
@@ -32,7 +34,7 @@ class ProposeRequest(BaseModel):
 
 class DisputeRequest(BaseModel):
     market_id: str = Field(min_length=1, max_length=64)
-    counter_bond: Decimal = Field(default=Decimal("50"), gt=0, le=Decimal("100000"))
+    counter_bond: Decimal = Field(default=Decimal("100"), gt=0, le=Decimal("100000"))
     evidence: dict | None = None
 
     @field_validator("counter_bond")
@@ -89,7 +91,7 @@ async def propose(
 @router.post("/dispute")
 async def dispute(
     body: DisputeRequest,
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
     market = (
@@ -98,11 +100,23 @@ async def dispute(
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
     result = await settlement.dispute_proposal(session, market, body.counter_bond)
-    if body.evidence is not None:
-        result.evidence_json = {**(result.evidence_json or {}), "dispute_evidence": body.evidence}
+    try:
+        stake = await agx.stake_dispute(session, user.id, market.id, body.counter_bond)
+    except agx.AgxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.code) from exc
+
+    orig_idx = result.proposed_outcome_index
+    result.evidence_json = {
+        **(result.evidence_json or {}),
+        "agx_dispute_stake_id": stake.id,
+        "disputer_user_id": user.id,
+        "original_proposed_index": orig_idx,
+        **({"dispute_evidence": body.evidence} if body.evidence is not None else {}),
+    }
     return {
         "market_id": market.id,
         "dispute_id": result.id,
+        "agx_dispute_stake_id": stake.id,
         "market_status": market.status,
         "evidence": result.evidence_json,
     }
@@ -119,9 +133,33 @@ async def finalize(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    prior_dispute = (
+        await session.execute(
+            select(OracleDispute)
+            .where(OracleDispute.market_id == market.id)
+            .order_by(OracleDispute.created_at.desc())
+        )
+    ).scalars().first()
     market = await settlement.finalize_resolution(
         session, market, body.winning_outcome_index
     )
+    if prior_dispute and isinstance(prior_dispute.evidence_json, dict):
+        stake_id = prior_dispute.evidence_json.get("agx_dispute_stake_id")
+        orig_idx = prior_dispute.evidence_json.get("original_proposed_index")
+        if stake_id and orig_idx is not None:
+            try:
+                await agx.resolve_dispute(
+                    session,
+                    stake_id,
+                    upheld=(body.winning_outcome_index != orig_idx),
+                )
+            except agx.AgxError as exc:
+                logger.warning(
+                    "AGX resolve_dispute skipped for market %s stake %s: %s",
+                    market.id,
+                    stake_id,
+                    exc.code,
+                )
     from app.ws.manager import manager
 
     await manager.broadcast(
@@ -165,6 +203,26 @@ async def resolve_with_deterministic_feed(
         "market_status": market.status,
         "winning_outcome_index": win_idx,
         "evidence": proof,
+    }
+
+
+@router.post("/run-tick")
+async def trigger_resolution_tick(
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Run one automated resolution lifecycle tick on demand."""
+    from app.services.resolution_worker import run_resolution_tick
+    from app.ws.manager import manager
+
+    result = await run_resolution_tick(session)
+    for event in result["broadcasts"]:
+        await manager.broadcast(event)
+    return {
+        "closed": result["closed"],
+        "expired": result["expired"],
+        "proposed": result["proposed"],
+        "finalized": result["finalized"],
     }
 
 

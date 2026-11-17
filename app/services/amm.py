@@ -1,6 +1,7 @@
 """LMSR Automated Market Maker (AMM) + LP pool service for hybrid liquidity."""
 from __future__ import annotations
 
+import logging
 import math
 from decimal import Decimal
 
@@ -12,6 +13,7 @@ from app.models.domain import AmmLpPosition, AmmPool, Event, Market, OutcomeToke
 from app.services import collateral
 from app.services.markets import MIN_COMMUNITY_FUNDING_USDC
 
+logger = logging.getLogger("app.amm")
 LN2 = math.log(2.0)
 
 
@@ -107,16 +109,24 @@ async def deposit_liquidity(
     amount_usdc: Decimal,
 ) -> AmmPool:
     """Deposit USDC into a market's LMSR pool, mint LP shares, and activate if >= $10."""
+    locked_market = (
+        await session.execute(
+            select(Market).where(Market.id == market.id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_market is not None:
+        market = locked_market
     if market.status not in ("UNFUNDED", "ACTIVE"):
         raise HTTPException(status_code=409, detail=f"Cannot fund market in status {market.status}")
     amount = collateral.q4(amount_usdc)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
 
-    await _debit_available(session, user_id, amount, f"amm_deposit:{market.id}")
-
+    # Canonical lock order: Market -> AmmPool -> AmmLpPosition -> CollateralAccount
     pool = (
-        await session.execute(select(AmmPool).where(AmmPool.market_id == market.id))
+        await session.execute(
+            select(AmmPool).where(AmmPool.market_id == market.id).with_for_update()
+        )
     ).scalar_one_or_none()
     if pool is None:
         b_val = Decimal(str(round(float(amount) / LN2, 6)))
@@ -134,22 +144,33 @@ async def deposit_liquidity(
     else:
         existing_usdc = Decimal(str(pool.pool_usdc))
         existing_shares = Decimal(str(pool.total_lp_shares))
-        if existing_usdc > 0 and existing_shares > 0:
-            minted_shares = collateral.q4(amount * existing_shares / existing_usdc)
+        q_y = Decimal(str(pool.q_yes))
+        q_n = Decimal(str(pool.q_no))
+        worst_liability = max(q_y, q_n)
+        net_equity = existing_usdc - worst_liability
+        valuation_base = net_equity if net_equity > 0 else existing_usdc
+        if valuation_base > 0 and existing_shares > 0:
+            minted_shares = collateral.q4(amount * existing_shares / valuation_base)
         else:
             minted_shares = amount
         new_usdc = collateral.q4(existing_usdc + amount)
         pool.pool_usdc = new_usdc
         pool.total_lp_shares = collateral.q4(existing_shares + minted_shares)
-        pool.b = Decimal(str(round(max(1.0, float(new_usdc) / LN2), 6)))
+        # Only grow b when no open AMM trades exist; otherwise keep b fixed so
+        # marginal prices stay invariant without desyncing q_yes/q_no liability.
+        if q_y == 0 and q_n == 0:
+            pool.b = Decimal(str(round(max(1.0, float(new_usdc) / LN2), 6)))
 
     lp = (
         await session.execute(
-            select(AmmLpPosition).where(
-                AmmLpPosition.market_id == market.id, AmmLpPosition.user_id == user_id
-            )
+            select(AmmLpPosition)
+            .where(AmmLpPosition.market_id == market.id, AmmLpPosition.user_id == user_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
+
+    await _debit_available(session, user_id, amount, f"amm_deposit:{market.id}")
+
     if lp is None:
         lp = AmmLpPosition(
             market_id=market.id,
@@ -187,7 +208,9 @@ async def execute_amm_trade(
     if market.status != "ACTIVE":
         raise HTTPException(status_code=409, detail=f"Market is {market.status}; trading requires ACTIVE")
     pool = (
-        await session.execute(select(AmmPool).where(AmmPool.market_id == market.id))
+        await session.execute(
+            select(AmmPool).where(AmmPool.market_id == market.id).with_for_update()
+        )
     ).scalar_one_or_none()
     if pool is None:
         raise HTTPException(status_code=404, detail="No AMM pool exists for this market")
@@ -200,11 +223,13 @@ async def execute_amm_trade(
 
     pos = (
         await session.execute(
-            select(Position).where(
+            select(Position)
+            .where(
                 Position.user_id == user_id,
                 Position.market_id == market.id,
                 Position.token_id == token.token_id,
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -265,7 +290,7 @@ async def execute_amm_trade(
                     session, agx_fee, creator_user_id=market.creator_user_id
                 )
         except Exception:  # pragma: no cover - AGX accounting must never block AMM trades
-            pass
+            logger.warning("AGX fee accounting failed for market %s", market.id, exc_info=True)
     await session.flush()
     return q
 
@@ -276,16 +301,18 @@ async def redeem_lp(session: AsyncSession, market: Market, user_id: str) -> dict
         raise HTTPException(status_code=409, detail="LP redemption requires RESOLVED market")
 
     pool = (
-        await session.execute(select(AmmPool).where(AmmPool.market_id == market.id))
+        await session.execute(
+            select(AmmPool).where(AmmPool.market_id == market.id).with_for_update()
+        )
     ).scalar_one_or_none()
     if pool is None:
         raise HTTPException(status_code=404, detail="AMM pool not found")
 
     lp = (
         await session.execute(
-            select(AmmLpPosition).where(
-                AmmLpPosition.market_id == market.id, AmmLpPosition.user_id == user_id
-            )
+            select(AmmLpPosition)
+            .where(AmmLpPosition.market_id == market.id, AmmLpPosition.user_id == user_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if lp is None or Decimal(str(lp.lp_shares)) <= 0:
@@ -305,3 +332,54 @@ async def redeem_lp(session: AsyncSession, market: Market, user_id: str) -> dict
     pool.pool_usdc = collateral.q4(max(Decimal("0"), Decimal(str(pool.pool_usdc)) - payout))
     await session.flush()
     return {"market_id": market.id, "redeemed_shares": float(user_shares), "payout_usdc": float(payout)}
+
+
+async def refund_unfunded_market(session: AsyncSession, market: Market) -> int:
+    """Expire an UNFUNDED market past end_date and refund any partial LP deposits."""
+    if market.status != "UNFUNDED":
+        return 0
+    market.status = "EXPIRED"
+    ev = (
+        await session.execute(select(Event).where(Event.id == market.event_id))
+    ).scalar_one_or_none()
+    if ev is not None and ev.status == "UNFUNDED":
+        ev.status = "EXPIRED"
+
+    pool = (
+        await session.execute(
+            select(AmmPool).where(AmmPool.market_id == market.id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if pool is None:
+        return 0
+
+    lps = (
+        await session.execute(
+            select(AmmLpPosition)
+            .where(AmmLpPosition.market_id == market.id, AmmLpPosition.lp_shares > 0)
+            .with_for_update()
+        )
+    ).scalars().all()
+    refunded = 0
+    total_shares = Decimal(str(pool.total_lp_shares))
+    pool_usdc = Decimal(str(pool.pool_usdc))
+    for lp in lps:
+        user_shares = Decimal(str(lp.lp_shares))
+        payout = (
+            collateral.q4(pool_usdc * user_shares / total_shares)
+            if total_shares > 0
+            else Decimal("0")
+        )
+        if payout > 0:
+            acc = await collateral.get_or_create_account(
+                session, lp.user_id, for_update=True
+            )
+            await collateral.credit_payout(
+                session, acc, payout, f"amm_unfunded_refund:{market.id}"
+            )
+            refunded += 1
+        lp.lp_shares = Decimal("0")
+    pool.pool_usdc = Decimal("0")
+    pool.total_lp_shares = Decimal("0")
+    await session.flush()
+    return refunded

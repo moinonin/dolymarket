@@ -1,17 +1,35 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api } from '../api/client'
+import { useAuth } from '../auth/AuthProvider'
 import { Skeleton } from '../components/ui'
 import { useToast } from '../context/toast'
 
 export default function MarketDetailPage({ marketId, onBack }: { marketId: string; onBack: () => void }) {
+  const { user, openAuth } = useAuth()
   const { push } = useToast()
   const [market, setMarket] = useState<any>(null)
   const [prices, setPrices] = useState<Record<string, number | null> | null>(null)
   const [book, setBook] = useState<any>(null)
+  const [ammPool, setAmmPool] = useState<any>(null)
+  const [lpAmount, setLpAmount] = useState('10')
+  const [ammShares, setAmmShares] = useState('10')
+  const [ammSide, setAmmSide] = useState<'BUY' | 'SELL'>('BUY')
+  const [ammOutcome, setAmmOutcome] = useState(0)
+  const [ammQuote, setAmmQuote] = useState<any>(null)
+  const [ammBusy, setAmmBusy] = useState(false)
   const [health, setHealth] = useState<{ ewi: number; regime_state: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const reload = useCallback(async () => {
+    const [m, pool] = await Promise.all([
+      api.getMarket(marketId) as Promise<any>,
+      api.getAmmPool(marketId).catch(() => null),
+    ])
+    setMarket(m)
+    setAmmPool(pool)
+  }, [marketId])
 
   useEffect(() => {
     let cancelled = false
@@ -19,9 +37,13 @@ export default function MarketDetailPage({ marketId, onBack }: { marketId: strin
       try {
         setLoading(true)
         setError(null)
-        const m = await api.getMarket(marketId) as any
+        const [m, pool] = await Promise.all([
+          api.getMarket(marketId) as Promise<any>,
+          api.getAmmPool(marketId).catch(() => null),
+        ])
         if (cancelled) return
         setMarket(m)
+        setAmmPool(pool)
         const tokens = (m.tokens || []).map((t: any) => t.token_id)
         if (tokens.length) {
           const bp = await api.getBulkPrices(tokens)
@@ -173,6 +195,155 @@ export default function MarketDetailPage({ marketId, onBack }: { marketId: strin
               </section>
             )
           })()}
+
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-white">Hybrid LMSR AMM &amp; LP Pool</h2>
+              {ammPool && (
+                <span className="font-mono text-xs text-emerald-300">
+                  Pool: ${ammPool.pool_usdc.toFixed(2)} USDC · YES {(ammPool.yes_price * 100).toFixed(1)}¢ / NO {(ammPool.no_price * 100).toFixed(1)}¢
+                </span>
+              )}
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <div className="text-xs font-medium text-slate-300">Provide / Fund Liquidity (USDC)</div>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={lpAmount}
+                    onChange={(e) => setLpAmount(e.target.value)}
+                    className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 font-mono text-xs text-white outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={ammBusy}
+                    onClick={async () => {
+                      if (!user) return openAuth('login')
+                      setAmmBusy(true)
+                      try {
+                        const amt = Number(lpAmount)
+                        if (market.tier === 'COMMUNITY') {
+                          await api.fundCommunityMarket(market.id, amt)
+                        } else {
+                          await api.depositAmmLiquidity(market.id, amt)
+                        }
+                        push('LP liquidity deposited.', 'info')
+                        await reload()
+                      } catch (err: any) {
+                        push(err?.message || 'Deposit failed', 'error')
+                      } finally {
+                        setAmmBusy(false)
+                      }
+                    }}
+                    className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+                  >
+                    Deposit LP
+                  </button>
+                  {market.status === 'RESOLVED' && ammPool && (
+                    <button
+                      type="button"
+                      disabled={ammBusy}
+                      onClick={async () => {
+                        if (!user) return openAuth('login')
+                        setAmmBusy(true)
+                        try {
+                          const r = await api.redeemAmmLp(market.id)
+                          push(`Redeemed LP shares for $${r.payout_usdc.toFixed(2)} USDC.`, 'info')
+                          await reload()
+                        } catch (err: any) {
+                          push(err?.message || 'Redeem failed', 'error')
+                        } finally {
+                          setAmmBusy(false)
+                        }
+                      }}
+                      className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+                    >
+                      Redeem LP
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {ammPool && market.status === 'ACTIVE' && (
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div className="text-xs font-medium text-slate-300">Instant AMM Trade</div>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      value={ammSide}
+                      onChange={(e) => setAmmSide(e.target.value as 'BUY' | 'SELL')}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
+                    >
+                      <option value="BUY">BUY</option>
+                      <option value="SELL">SELL</option>
+                    </select>
+                    <select
+                      value={ammOutcome}
+                      onChange={(e) => setAmmOutcome(Number(e.target.value))}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-white"
+                    >
+                      {(market.tokens || []).slice(0, 2).map((t: any) => (
+                        <option key={t.token_id} value={t.outcome_index}>{t.symbol}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={ammShares}
+                      onChange={(e) => setAmmShares(e.target.value)}
+                      className="w-24 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={ammBusy}
+                      onClick={async () => {
+                        try {
+                          const q = await api.quoteAmm(market.id, ammOutcome, ammSide, Number(ammShares))
+                          setAmmQuote(q)
+                        } catch (err: any) {
+                          push(err?.message || 'Quote failed', 'error')
+                        }
+                      }}
+                      className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                    >
+                      Quote
+                    </button>
+                    <button
+                      type="button"
+                      disabled={ammBusy}
+                      onClick={async () => {
+                        if (!user) return openAuth('login')
+                        const tok = (market.tokens || []).find((t: any) => t.outcome_index === ammOutcome)
+                        if (!tok) return
+                        setAmmBusy(true)
+                        try {
+                          await api.tradeAmm(market.id, tok.token_id, ammSide, Number(ammShares))
+                          push(`AMM ${ammSide} ${ammShares} ${tok.symbol} executed.`, 'info')
+                          setAmmQuote(null)
+                          await reload()
+                        } catch (err: any) {
+                          push(err?.message || 'AMM trade failed', 'error')
+                        } finally {
+                          setAmmBusy(false)
+                        }
+                      }}
+                      className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+                    >
+                      Execute
+                    </button>
+                  </div>
+                  {ammQuote && (
+                    <div className="font-mono text-[11px] text-slate-400">
+                      Avg: {(ammQuote.avg_price * 100).toFixed(2)}¢ · Total: ${ammQuote.total_usdc.toFixed(2)} (fee ${ammQuote.fee_usdc.toFixed(2)})
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
         </>
       ) : null}
     </div>

@@ -21,6 +21,46 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+async def cancel_market_orders(session: AsyncSession, market_id: str) -> int:
+    """Cancel all resting OPEN/PARTIALLY_FILLED orders for a market and release locks."""
+    from app.engine.clob import MatchingEngine
+    from app.models.domain import Order
+    from app.services import collateral
+
+    orders = (
+        await session.execute(
+            select(Order).where(
+                Order.market_id == market_id,
+                Order.status.in_(("OPEN", "PARTIALLY_FILLED")),
+            )
+        )
+    ).scalars().all()
+    if not orders:
+        return 0
+    engine = MatchingEngine()
+    for order in orders:
+        await engine.cancel_order(session, order, collateral)
+    return len(orders)
+
+
+async def sync_event_status(session: AsyncSession, event_id: str) -> None:
+    """Update parent Event status only when all sibling markets have transitioned."""
+    event = (
+        await session.execute(select(Event).where(Event.id == event_id))
+    ).scalar_one_or_none()
+    if event is None:
+        return
+    statuses = (
+        await session.execute(select(Market.status).where(Market.event_id == event_id))
+    ).scalars().all()
+    if not statuses or any(s == "ACTIVE" for s in statuses):
+        return
+    if all(s == "RESOLVED" for s in statuses):
+        event.status = "RESOLVED"
+    elif all(s in ("CLOSED", "IN_RESOLUTION", "DISPUTED", "RESOLVED", "EXPIRED") for s in statuses):
+        event.status = "CLOSED"
+
+
 async def propose_resolution(
     session: AsyncSession, market: Market, proposed_outcome_index: int
 ) -> OracleDispute:
@@ -52,11 +92,7 @@ async def propose_resolution(
     )
     session.add(dispute)
     market.status = "IN_RESOLUTION"
-    event = (
-        await session.execute(select(Event).where(Event.id == market.event_id))
-    ).scalar_one_or_none()
-    if event is not None and event.status == "ACTIVE":
-        event.status = "CLOSED"
+    await sync_event_status(session, market.event_id)
     return dispute
 
 
@@ -102,11 +138,7 @@ async def finalize_resolution(
         raise HTTPException(status_code=422, detail="Invalid winning outcome index")
     market.winning_outcome_index = winning_outcome_index
     market.status = "RESOLVED"
-    event = (
-        await session.execute(select(Event).where(Event.id == market.event_id))
-    ).scalar_one_or_none()
-    if event is not None:
-        event.status = "RESOLVED"
+    await sync_event_status(session, market.event_id)
     dispute = (
         await session.execute(
             select(OracleDispute)
@@ -161,7 +193,7 @@ async def split_position(
 
     positions: list[Position] = []
     for token in tokens:
-        position = await _get_position(session, user.id, token.token_id)
+        position = await _get_position(session, user.id, token.token_id, for_update=True)
         if position is None:
             position = Position(
                 user_id=user.id,
@@ -190,7 +222,7 @@ async def merge_positions(
         )
     ).scalars().all()
     for token in tokens:
-        position = await _get_position(session, user.id, token.token_id)
+        position = await _get_position(session, user.id, token.token_id, for_update=True)
         if position is None or to_dec(position.shares) - to_dec(
             position.locked_shares
         ) < shares:
@@ -198,7 +230,7 @@ async def merge_positions(
                 status_code=400, detail="Insufficient shares across full outcome set"
             )
     for token in tokens:
-        position = await _get_position(session, user.id, token.token_id)
+        position = await _get_position(session, user.id, token.token_id, for_update=True)
         position.shares = to_dec(position.shares) - shares
     account = await approval_account(session, user.id)
     cost = to_dec(shares)
@@ -209,24 +241,21 @@ async def merge_positions(
     return cost
 
 
-def approval_account(session: AsyncSession, user_id: str):
-    from app.models.domain import CollateralAccount
+async def approval_account(session: AsyncSession, user_id: str):
+    from app.services import collateral
 
-    return session.scalar(
-        select(CollateralAccount).where(CollateralAccount.user_id == user_id)
-    )
+    return await collateral.get_or_create_account(session, user_id, for_update=True)
 
 
 async def _get_position(
-    session: AsyncSession, user_id: str, token_id: str
+    session: AsyncSession, user_id: str, token_id: str, *, for_update: bool = False
 ) -> Position | None:
-    return (
-        await session.execute(
-            select(Position).where(
-                Position.user_id == user_id, Position.token_id == token_id
-            )
-        )
-    ).scalar_one_or_none()
+    stmt = select(Position).where(
+        Position.user_id == user_id, Position.token_id == token_id
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def redeem_position(

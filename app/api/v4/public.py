@@ -28,6 +28,10 @@ def _market_payload(m: Market, tokens: list[OutcomeToken] = ()) -> dict:
         "creator_user_id": getattr(m, "creator_user_id", None),
         "resolution_criteria": getattr(m, "resolution_criteria", None),
         "oracle_feed": getattr(m, "oracle_feed", None),
+        "oracle_threshold": (
+            float(m.oracle_threshold) if getattr(m, "oracle_threshold", None) is not None else None
+        ),
+        "oracle_comparator": getattr(m, "oracle_comparator", None),
         "clarity": oracle.compute_clarity_score(
             getattr(m, "resolution_criteria", None),
             question=m.question,

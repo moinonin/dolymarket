@@ -7,12 +7,20 @@ routers:
   module: app.api.v1.auth
   vars:
   - router
+- file: app/api/v1/agx.py
+  module: app.api.v1.agx
+  vars:
+  - router
 - file: app/api/v1/passkey.py
   module: app.api.v1.passkey
   vars:
   - router
 - file: app/api/v1/desks.py
   module: app.api.v1.desks
+  vars:
+  - router
+- file: app/api/v1/feargreed.py
+  module: app.api.v1.feargreed
   vars:
   - router
 - file: app/api/v1/collateral.py
@@ -31,6 +39,10 @@ routers:
   module: app.api.v4.ws_live
   vars:
   - router
+- file: app/api/v4/amm.py
+  module: app.api.v4.amm
+  vars:
+  - router
 - file: app/api/v4/orders.py
   module: app.api.v4.orders
   vars:
@@ -45,6 +57,10 @@ routers:
   - router
 - file: app/api/v4/admin.py
   module: app.api.v4.admin
+  vars:
+  - router
+- file: app/api/v4/community.py
+  module: app.api.v4.community
   vars:
   - router
 - file: app/api/v4/resolution.py
@@ -68,11 +84,19 @@ mounted_routers:
   prefix: ''
   tags: []
   file: app/main.py
+- router: agx_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
 - router: collateral_router.router
   prefix: ''
   tags: []
   file: app/main.py
 - router: desks_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: feargreed_router.router
   prefix: ''
   tags: []
   file: app/main.py
@@ -104,6 +128,14 @@ mounted_routers:
   prefix: ''
   tags: []
   file: app/main.py
+- router: amm_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
+- router: community_router.router
+  prefix: ''
+  tags: []
+  file: app/main.py
 - router: ws_router.router
   prefix: ''
   tags: []
@@ -126,7 +158,7 @@ mounted_routers:
   file: app/main.py
 dependencies:
   db_session: null
-  auth_guard: null
+  auth_guard: app.api.v1.auth:_set_refresh_cookie
 models:
   User: app.models.domain:User
   CollateralAccount: app.models.domain:CollateralAccount
@@ -143,33 +175,123 @@ models:
   PasskeyCredential: app.models.domain:PasskeyCredential
   PasskeyChallenge: app.models.domain:PasskeyChallenge
   AuthExchangeCode: app.models.domain:AuthExchangeCode
+  WalletChallenge: app.models.domain:WalletChallenge
   Desk: app.models.domain:Desk
   DeskFollower: app.models.domain:DeskFollower
   DeskPosition: app.models.domain:DeskPosition
   CopyJob: app.models.domain:CopyJob
+  AgxBalance: app.models.domain:AgxBalance
+  AgxStake: app.models.domain:AgxStake
+  AgxUnstakeCooldown: app.models.domain:AgxUnstakeCooldown
+  AgxDisputeStake: app.models.domain:AgxDisputeStake
+  AgxDeskStake: app.models.domain:AgxDeskStake
+  AgxMarketStake: app.models.domain:AgxMarketStake
+  AgxRewardEpoch: app.models.domain:AgxRewardEpoch
+  AgxLedger: app.models.domain:AgxLedger
+  DeskMarketMakerConfig: app.models.domain:DeskMarketMakerConfig
+  AmmPool: app.models.domain:AmmPool
+  AmmLpPosition: app.models.domain:AmmLpPosition
+  TokenPartitionState: app.models.domain:TokenPartitionState
+  OutboxEvent: app.models.domain:OutboxEvent
   RegisterRequest: app.api.v1.auth:RegisterRequest
   LoginRequest: app.api.v1.auth:LoginRequest
+  DexBuilderWalletRequest: app.api.v1.auth:DexBuilderWalletRequest
+  WalletChallengeRequest: app.api.v1.auth:WalletChallengeRequest
+  WalletChallengeResponse: app.api.v1.auth:WalletChallengeResponse
+  WalletVerifyRequest: app.api.v1.auth:WalletVerifyRequest
   TokenResponse: app.api.v1.auth:TokenResponse
+  AmountBody: app.api.v1.agx:AmountBody
+  StakeIdBody: app.api.v1.agx:StakeIdBody
+  CooldownIdBody: app.api.v1.agx:CooldownIdBody
+  DisputeBody: app.api.v1.agx:DisputeBody
+  SyncBody: app.api.v1.agx:SyncBody
+  DistributeBody: app.api.v1.agx:DistributeBody
   PasskeyVerifyRequest: app.api.v1.passkey:PasskeyVerifyRequest
   CreateDeskRequest: app.api.v1.desks:CreateDeskRequest
   UpdateDeskRequest: app.api.v1.desks:UpdateDeskRequest
   RejectRequest: app.api.v1.desks:RejectRequest
   FollowRequest: app.api.v1.desks:FollowRequest
+  MMStartRequest: app.api.v1.desks:MMStartRequest
   AmountRequest: app.api.v1.collateral:AmountRequest
   ExchangeRequest: app.api.v1.oauth:ExchangeRequest
+  AmmDepositRequest: app.api.v4.amm:AmmDepositRequest
+  AmmTradeRequest: app.api.v4.amm:AmmTradeRequest
   CreateOrderRequest: app.api.v4.orders:CreateOrderRequest
+  SmartOrderRequest: app.api.v4.orders:SmartOrderRequest
   SplitRequest: app.api.v4.positions:SplitRequest
   CreateEventRequest: app.api.v4.admin:CreateEventRequest
   CreateMarketRequest: app.api.v4.admin:CreateMarketRequest
   RejectDeskRequest: app.api.v4.admin:RejectDeskRequest
+  CreateCommunityMarketRequest: app.api.v4.community:CreateCommunityMarketRequest
+  FundCommunityMarketRequest: app.api.v4.community:FundCommunityMarketRequest
   ProposeRequest: app.api.v4.resolution:ProposeRequest
   DisputeRequest: app.api.v4.resolution:DisputeRequest
   FinalizeRequest: app.api.v4.resolution:FinalizeRequest
+  FeedResolveRequest: app.api.v4.resolution:FeedResolveRequest
+  DexBuilderOrderRequest: app.api.v4.dexbuilder.proxy:DexBuilderOrderRequest
 test_framework: pytest
 test_command: pytest tests/
 source_dirs:
+- .opencode
+- alembic
 - app
 - predmarket
 - site
-_fingerprint: eca11508cfffba07
-_scanned_at: 1794407863.722743
+code_dir: /Users/nickrotich/Desktop/portfolio/projects/python/dolymarket
+candidate_tests:
+- .opencode/skills/brand/scripts/tests/test_sync_brand_to_tokens.py
+- .opencode/skills/design-system/scripts/tests/test_validate_tokens.py
+- .opencode/skills/ui-styling/scripts/tests/test_shadcn_add.py
+- .opencode/skills/ui-styling/scripts/tests/test_tailwind_config_gen.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_catalog_refresh.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_core.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_core_data_quality.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_data_contracts.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_native_desktop_stack_freshness.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_relevance_evaluator.py
+- .opencode/skills/ui-ux-pro-max/scripts/tests/test_style_taxonomy.py
+candidate_files:
+- .opencode/skills/design-system/scripts/fetch-background.py
+- .opencode/skills/design-system/scripts/generate-slide.py
+- .opencode/skills/design-system/scripts/html-token-validator.py
+- .opencode/skills/design-system/scripts/search-slides.py
+- .opencode/skills/design-system/scripts/slide-token-validator.py
+- .opencode/skills/design-system/scripts/slide_search_core.py
+- .opencode/skills/design/scripts/cip/core.py
+- .opencode/skills/design/scripts/cip/generate.py
+- .opencode/skills/design/scripts/cip/render-html.py
+- .opencode/skills/design/scripts/cip/search.py
+- .opencode/skills/design/scripts/icon/generate.py
+- .opencode/skills/design/scripts/logo/core.py
+- .opencode/skills/design/scripts/logo/generate.py
+- .opencode/skills/design/scripts/logo/search.py
+- .opencode/skills/ui-styling/scripts/shadcn_add.py
+- .opencode/skills/ui-styling/scripts/tailwind_config_gen.py
+- .opencode/skills/ui-ux-pro-max/scripts/core.py
+- .opencode/skills/ui-ux-pro-max/scripts/design_system.py
+- .opencode/skills/ui-ux-pro-max/scripts/reasoning_contract.py
+- .opencode/skills/ui-ux-pro-max/scripts/search.py
+frontend_files:
+- frontend/src/App.tsx
+- frontend/src/api/client.ts
+- frontend/src/api/optimisticOrders.ts
+- frontend/src/api/reconnectingSocket.ts
+- frontend/src/auth/AuthProvider.tsx
+- frontend/src/auth/AuthProviders.tsx
+- frontend/src/components/CashLedgerModal.tsx
+- frontend/src/components/DeskMarketMakerPanel.tsx
+- frontend/src/components/DexBuilderBrokerPanel.tsx
+- frontend/src/components/DexBuilderTransferModal.tsx
+- frontend/src/components/Dialog.tsx
+- frontend/src/components/ErrorBoundary.tsx
+- frontend/src/components/Footer.tsx
+- frontend/src/components/HeroVisual.tsx
+- frontend/src/components/LiveTradeTicket.tsx
+- frontend/src/components/OrderBookLadder.tsx
+- frontend/src/components/RecentTrades.tsx
+- frontend/src/components/TradeTicket.tsx
+- frontend/src/components/WalletButton.tsx
+- frontend/src/components/WalletConnectModal.tsx
+_fingerprint: bff1962f39359a23
+_scanned_at: 1794943899.438947

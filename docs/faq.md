@@ -1,16 +1,13 @@
 # FAQ
 
-**Is this real money?** No. It is a simulation environment.
+**Is this real money?** No. AlgoXen currently runs in a simulation environment with virtual USDC balances.
 
-**Can I lose money?** Simulated USDC only; no real funds.
+**Can I lose money?** Simulated USDC only; no real funds are at risk.
 
-**How are markets resolved?** Via an optimistic oracle with a proposal bond and
-dispute window.
+**How are markets resolved?** Automated price feeds (`gate:` / `coingecko:`) evaluate at market close and open a 2-hour dispute window. Any trader can challenge with a **100 AGX** counter-bond; uncontested proposals finalize automatically and pay **$1.00 USDC** per winning share.
 
-**What is a Pro Desk?** A public track record you can follow; fills are
-mirrored proportionally into your own account.
+**Can I create my own market?** Yes — go to **Live Markets → Community** and click **Create Community Market**. Markets activate once funded with at least **$10 USDC** in LP liquidity (or auto-refund LPs if they expire unfunded).
+
+**What is a Pro Desk?** A public track record you can follow; fills are mirrored proportionally into your own account.
 
 **Is copy trading custodial?** No. Your own collateral funds every copy order.
-
-**Where does market data come from?** Live markets can be sourced from
-DexBuilder when configured, otherwise from the local seed.

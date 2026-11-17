@@ -132,6 +132,15 @@ export default function EventDetailPage({
           <span>
             Oracle criteria: <span className="text-slate-300">UMA optimistic oracle — bonded assert, 2h dispute window.</span>
           </span>
+          {market && (
+            <button
+              type="button"
+              onClick={() => onNavigate(`market/${market.id}`)}
+              className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-300 transition hover:bg-emerald-500/20"
+            >
+              AMM &amp; LP Pool →
+            </button>
+          )}
         </div>
       </header>
 

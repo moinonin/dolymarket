@@ -1,12 +1,12 @@
-# AGX Utility Token & Staking (`#agx`)
+# AGX Utility Token & Staking
 
-**AGX (Algoxen)** is a complementary 18-decimal utility token (`app/services/agx.py`, `app/api/v1/agx.py`). Zero-AGX users remain **Tier 0** and trade, fund, and settle normally without holding AGX.
+**AGX** is AlgoXen's utility token for trading fee discounts, 24-hour fee-sharing epochs, and oracle dispute bonds. Users without AGX remain **Tier 0** and can still trade, fund markets, and settle positions normally.
 
 ---
 
-## 1. Staking Tiers & Taker Fee Discounts (`AgxStakingPage`)
+## 1. Staking Tiers & Taker Fee Discounts
 
-`AgxStakingPage` (`frontend/src/pages/AgxStakingPage.tsx`) connects to `/api/v1/agx/*` (`Decimal`-string wire format):
+Visit **AGX** in the top navigation to stake or manage AGX:
 
 | Tier | Name | Minimum Staked AGX | Taker Fee Discount |
 |---|---|---|---|
@@ -15,24 +15,20 @@
 | `2` | Silver | `1,000` | `10%` |
 | `3` | Gold | `5,000` | `15%` |
 
-- **CLOB Wiring**: Every CLOB fill (`app/engine/clob.py`) calls `agx.apply_fee_discount()` on the taker fee (falling back cleanly to base fee if AGX is unavailable).
-- **Unstake Cooldown**: Unstaking enters a 7-day cooldown (`AgxUnstakeCooldown`) with live progress bars on `#agx` before `Withdraw` returns AGX to spendable balance.
+- **Automatic Discounts**: Your staked tier automatically discounts taker fees on order-book fills.
+- **Unstake Cooldown**: Unstaking enters a **7-day cooldown** before AGX returns to your spendable balance.
 
 ---
 
-## 2. Protocol Fee Accrual & Automated 24h Epochs
+## 2. Fee Sharing & 24-Hour Reward Epochs
 
-- **CLOB + AMM Fee Flow**:
-  - CLOB fills record `taker_fee + maker_fee` into the open `AgxRewardEpoch` (using `begin_nested` on SQLite/Postgres and direct call on Turso libSQL).
-  - AMM trades (`app/services/amm.py`) split the `1%` fee **50/50** between `AmmPool.fees_collected_usdc` (LPs) and `agx.record_fee(..., creator_user_id=market.creator_user_id)`.
-- **Distribution Split**: Each epoch allocates **40%** to market creators (`creator_share`) and **60%** to AGX stakers (`staker_pool`, pro-rata by staked balance).
-- **Automated Rollover**: A lifespan background task (`app/main.py`) runs `agx.distribute_matured_epochs()` every 15 minutes to distribute any epoch older than 24 hours; admins can also trigger `POST /api/v1/agx/epochs/distribute`.
+- **Fee Pool**: Order-book trading fees and **50%** of the `1%` AMM pool fee accrue into the active 24-hour reward epoch (the other **50%** of AMM fees go directly to pool LPs).
+- **Distribution Split**: Each matured 24-hour epoch distributes **40%** to market creators and **60%** pro-rata to AGX stakers.
 
 ---
 
 ## 3. Gating Bonds & Dispute Staking
 
-- **Pro Desk Bond**: `500 AGX` locked via `ensure_desk_bond` (`app/api/v1/desks.py`).
-- **Optional Community Market Bond**: `1,000 AGX` opt-in via `bond_with_agx: true` on `POST /api/v4/prediction/community/markets` (`ensure_market_bond`).
-- **Dispute Staking**: Users can post AGX dispute stakes via `POST /api/v1/agx/dispute-stake`.
-- **On-Chain Reconciliation**: `POST /api/v1/agx/sync-balance` credits only the net positive delta over cumulative verified deposits.
+- **Dispute Counter-Bond**: Challenging a proposed market resolution on the **Resolution** page requires locking **100 AGX**. If the dispute is upheld, your 100 AGX is returned plus a **20% AGX reward**; if rejected, the stake is forfeited.
+- **Pro Desk Bond**: `500 AGX` bond when creating/activating a Pro Desk (when held).
+- **Optional Community Market Bond**: Creators may optionally stake a `1,000 AGX` bond when launching a Community Market.

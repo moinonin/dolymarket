@@ -4,7 +4,10 @@ import {
   CheckCircle2,
   ClipboardList,
   Gavel,
+  Play,
   Plus,
+  RefreshCw,
+  Scale,
   ShieldAlert,
   XCircle,
 } from 'lucide-react'
@@ -12,10 +15,11 @@ import { api, type AdminCopyJob, type AdminDesk, type Market } from '../api/clie
 import { Skeleton } from '../components/ui'
 import { useToast } from '../context/toast'
 
-type Tab = 'markets' | 'desks' | 'copy'
+type Tab = 'markets' | 'resolution' | 'desks' | 'copy'
 
 const TABS: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'markets', label: 'Markets', icon: Gavel },
+  { key: 'resolution', label: 'Resolution queue', icon: Scale },
   { key: 'desks', label: 'Desk review', icon: ClipboardList },
   { key: 'copy', label: 'Copy activity', icon: Activity },
 ]
@@ -60,6 +64,7 @@ export default function AdminPage() {
       </div>
 
       {tab === 'markets' && <MarketsPanel push={push} />}
+      {tab === 'resolution' && <ResolutionQueuePanel push={push} />}
       {tab === 'desks' && <DeskReviewPanel push={push} />}
       {tab === 'copy' && <CopyActivityPanel />}
     </div>
@@ -76,17 +81,24 @@ function MarketsPanel({ push }: { push: (m: string, k?: 'info' | 'error') => voi
   const [slug, setSlug] = useState('')
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState('Politics')
+  const [endDate, setEndDate] = useState('')
   const [eventSlug, setEventSlug] = useState('')
   const [question, setQuestion] = useState('')
   const [outcomes, setOutcomes] = useState('Yes, No')
+  const [oracleFeed, setOracleFeed] = useState('')
+  const [oracleComparator, setOracleComparator] = useState('>=')
+  const [oracleThreshold, setOracleThreshold] = useState('')
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [creatingMarket, setCreatingMarket] = useState(false)
 
   const load = useCallback(async () => {
     try {
       setError(null)
-      const res = await api.listMarkets({ status: 'ACTIVE' })
-      setMarkets(res.markets || [])
+      const [activeRes, unfundedRes] = await Promise.all([
+        api.listMarkets({ status: 'ACTIVE' }),
+        api.listMarkets({ status: 'UNFUNDED' }),
+      ])
+      setMarkets([...(activeRes.markets || []), ...(unfundedRes.markets || [])])
     } catch (err: any) {
       setError(err?.message || 'Could not load markets')
       setMarkets([])
@@ -106,10 +118,12 @@ function MarketsPanel({ push }: { push: (m: string, k?: 'info' | 'error') => voi
         slug: slug.trim(),
         title: title.trim(),
         category: category.trim() || 'Politics',
+        ...(endDate ? { end_date: new Date(endDate).toISOString() } : {}),
       })
       push(`Event "${slug.trim()}" created.`, 'info')
       setSlug('')
       setTitle('')
+      setEndDate('')
       setEventSlug(slug.trim())
     } catch (err: any) {
       push(err?.message || 'Could not create the event', 'error')
@@ -127,13 +141,20 @@ function MarketsPanel({ push }: { push: (m: string, k?: 'info' | 'error') => voi
     if (!eventSlug.trim() || !question.trim() || parsed.length < 2) return
     setCreatingMarket(true)
     try {
+      const parsedThreshold = oracleThreshold.trim() !== '' ? Number(oracleThreshold) : undefined
       await api.createMarket({
         event_slug: eventSlug.trim(),
         question: question.trim(),
         outcomes: parsed,
+        ...(oracleFeed.trim() ? { oracle_feed: oracleFeed.trim() } : {}),
+        ...(parsedThreshold !== undefined && !Number.isNaN(parsedThreshold)
+          ? { oracle_threshold: parsedThreshold, oracle_comparator: oracleComparator }
+          : {}),
       })
       push('Market created and live.', 'info')
       setQuestion('')
+      setOracleFeed('')
+      setOracleThreshold('')
       await load()
     } catch (err: any) {
       push(err?.message || 'Could not create the market', 'error')
@@ -186,6 +207,14 @@ function MarketsPanel({ push }: { push: (m: string, k?: 'info' | 'error') => voi
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500/60"
             />
           </Field>
+          <Field label="End date (optional, auto-closes for oracle)">
+            <input
+              type="datetime-local"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500/60"
+            />
+          </Field>
           <button
             type="submit"
             disabled={creatingEvent || !slug.trim() || !title.trim()}
@@ -226,6 +255,38 @@ function MarketsPanel({ push }: { push: (m: string, k?: 'info' | 'error') => voi
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500/60"
             />
           </Field>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Field label="Auto-oracle feed (optional)">
+              <input
+                value={oracleFeed}
+                onChange={(e) => setOracleFeed(e.target.value)}
+                placeholder="gate:BTC_USDT"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-emerald-500/60"
+              />
+            </Field>
+            <Field label="Rule">
+              <select
+                value={oracleComparator}
+                onChange={(e) => setOracleComparator(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-slate-100 outline-none focus:border-emerald-500/60"
+              >
+                <option value=">=">&gt;=</option>
+                <option value=">">&gt;</option>
+                <option value="<=">&lt;=</option>
+                <option value="<">&lt;</option>
+              </select>
+            </Field>
+            <Field label="Threshold">
+              <input
+                type="number"
+                step="any"
+                value={oracleThreshold}
+                onChange={(e) => setOracleThreshold(e.target.value)}
+                placeholder="100000"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-emerald-500/60"
+              />
+            </Field>
+          </div>
           <button
             type="submit"
             disabled={creatingMarket || !eventSlug.trim() || !question.trim()}
@@ -671,5 +732,220 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs font-medium text-slate-400">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
+  )
+}
+
+// -------------------------------------------------------- resolution queue ---
+
+function ResolutionQueuePanel({
+  push,
+}: {
+  push: (m: string, k?: 'info' | 'error') => void
+}) {
+  const [closedMarkets, setClosedMarkets] = useState<Market[] | null>(null)
+  const [inResMarkets, setInResMarkets] = useState<any[] | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [tickBusy, setTickBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const [closedRes, resQueue] = await Promise.all([
+        api.listMarkets({ status: 'CLOSED' }),
+        api.listResolutionMarkets(),
+      ])
+      setClosedMarkets(closedRes.markets || [])
+      setInResMarkets(resQueue.markets || [])
+    } catch (err: any) {
+      push(err?.message || 'Could not load resolution queue', 'error')
+    }
+  }, [push])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function handleRunTick() {
+    setTickBusy(true)
+    try {
+      const r = await api.runResolutionTick()
+      push(
+        `Auto-tick: closed ${r.closed}, expired ${r.expired}, proposed ${r.proposed}, finalized ${r.finalized}.`,
+        'info',
+      )
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Resolution tick failed', 'error')
+    } finally {
+      setTickBusy(false)
+    }
+  }
+
+  async function handlePropose(marketId: string, idx: number) {
+    setBusyId(marketId)
+    try {
+      await api.proposeResolution(marketId, idx)
+      push('Resolution proposed — 2h dispute window started.', 'info')
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Propose failed', 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleRunFeed(m: Market) {
+    if (!m.oracle_feed || m.oracle_threshold == null) return
+    setBusyId(m.id)
+    try {
+      await api.resolveWithFeed(m.id, m.oracle_feed, m.oracle_threshold, m.oracle_comparator || '>=', false)
+      push(`Oracle evaluated ${m.oracle_feed} and proposed winner.`, 'info')
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Oracle evaluation failed', 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleFinalize(marketId: string, idx: number) {
+    setBusyId(marketId)
+    try {
+      await api.finalizeResolution(marketId, idx)
+      push('Market finalized and winning positions paid.', 'info')
+      await load()
+    } catch (err: any) {
+      push(err?.message || 'Finalize failed', 'error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Automated Resolution Engine</h2>
+          <p className="text-xs text-slate-400">
+            Background worker runs every 30s to close expired markets, evaluate oracle feeds, and finalize uncontested proposals.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRunTick()}
+            disabled={tickBusy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          >
+            <Play className="h-3.5 w-3.5" />
+            {tickBusy ? 'Running…' : 'Run Auto-Tick Now'}
+          </button>
+        </div>
+      </div>
+
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-white">Closed markets awaiting proposal</h3>
+        {closedMarkets === null ? (
+          <Skeleton className="h-20 w-full" />
+        ) : closedMarkets.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-800 py-8 text-center text-xs text-slate-500">
+            No CLOSED markets waiting for resolution proposal.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {closedMarkets.map((m) => (
+              <div
+                key={m.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">{m.question}</p>
+                  <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+                    {m.oracle_feed
+                      ? `Oracle: ${m.oracle_feed} ${m.oracle_comparator || '>='} ${m.oracle_threshold ?? '—'}`
+                      : 'Manual oracle'} · {m.id.slice(0, 8)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {m.oracle_feed && m.oracle_threshold != null && (
+                    <button
+                      type="button"
+                      disabled={busyId === m.id}
+                      onClick={() => void handleRunFeed(m)}
+                      className="rounded-lg bg-blue-500/20 px-2.5 py-1.5 text-[11px] font-semibold text-blue-300 ring-1 ring-blue-500/40 transition hover:bg-blue-500/30 disabled:opacity-40"
+                    >
+                      Run Oracle Feed
+                    </button>
+                  )}
+                  {m.outcomes.map((label, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={busyId === m.id}
+                      onClick={() => void handlePropose(m.id, idx)}
+                      className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-40"
+                    >
+                      Propose: {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-white">In resolution / Disputed (ready to finalize)</h3>
+        {inResMarkets === null ? (
+          <Skeleton className="h-20 w-full" />
+        ) : inResMarkets.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-800 py-8 text-center text-xs text-slate-500">
+            No markets currently in resolution or dispute.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {inResMarkets.map((r) => (
+              <div
+                key={r.market_id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">{r.question}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    Status: <span className="font-mono text-amber-300">{r.market_status}</span> · Proposed:{' '}
+                    <span className="font-mono text-white">
+                      {r.proposed_outcome_index != null ? r.outcomes?.[r.proposed_outcome_index] : '—'}
+                    </span>{' '}
+                    · Deadline: {formatTimestamp(r.dispute_deadline)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(r.outcomes || []).map((label: string, idx: number) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      disabled={busyId === r.market_id}
+                      onClick={() => void handleFinalize(r.market_id, idx)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 ring-1 ring-emerald-500/40 transition hover:bg-emerald-500/25 disabled:opacity-40"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Finalize: {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   )
 }

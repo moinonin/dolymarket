@@ -1,6 +1,7 @@
 """Oracle Clarity Score and deterministic price/event resolution feeds."""
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -87,16 +88,63 @@ def compute_clarity_score(
     return {"score": score, "grade": grade, "flags": flags}
 
 
-async def fetch_deterministic_spot(feed: str) -> dict[str, Any]:
-    """Fetch a verifiable spot observation for a deterministic feed string."""
+LIVE_ORACLE_PROVIDERS = frozenset({"gate", "coingecko"})
+
+
+def validate_oracle_feed(feed: str, *, allow_static: bool = False) -> str:
+    """Validate `<provider>:<symbol>` format and enforce provider allowlist."""
+    raw = (feed or "").strip()
+    if ":" not in raw:
+        raise HTTPException(
+            status_code=422, detail="Feed must be formatted as '<provider>:<symbol>'"
+        )
+    provider, symbol = raw.split(":", 1)
+    prov = provider.strip().lower()
+    sym = symbol.strip()
+    if not sym:
+        raise HTTPException(status_code=422, detail="Oracle feed symbol cannot be empty")
+    if prov == "static":
+        is_prod = os.environ.get("APP_ENV", "").strip().lower() == "production"
+        if not allow_static or (
+            is_prod and os.environ.get("ALLOW_STATIC_ORACLE", "").strip() != "1"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="static oracle provider is not allowed for community or production markets",
+            )
+        try:
+            Decimal(sym)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Invalid static feed numeric value") from exc
+        return f"static:{sym}"
+    if prov not in LIVE_ORACLE_PROVIDERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported oracle provider '{provider}'; allowed: {', '.join(sorted(LIVE_ORACLE_PROVIDERS))}",
+        )
+    return f"{prov}:{sym}"
+
+
+async def fetch_deterministic_spot(
+    feed: str,
+    *,
+    at_dt: datetime | None = None,
+) -> dict[str, Any]:
+    """Fetch a verifiable spot (or historical 1m close at ``at_dt``) for a feed string."""
     raw = feed.strip()
     if ":" not in raw:
         raise HTTPException(status_code=422, detail="Feed must be formatted as '<provider>:<symbol>'")
     provider, symbol = raw.split(":", 1)
     prov = provider.lower()
-    now_iso = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
+    now_iso = now.isoformat()
 
     if prov == "static":
+        is_prod = os.environ.get("APP_ENV", "").strip().lower() == "production"
+        if is_prod and os.environ.get("ALLOW_STATIC_ORACLE", "").strip() != "1":
+            raise HTTPException(
+                status_code=422, detail="static oracle provider is disabled in production"
+            )
         try:
             val = Decimal(symbol)
         except Exception as exc:
@@ -105,11 +153,37 @@ async def fetch_deterministic_spot(feed: str) -> dict[str, Any]:
             "feed": raw,
             "observed_value": float(val),
             "source_url": "internal://static-oracle-test",
-            "observed_at": now_iso,
+            "observed_at": (at_dt.astimezone(UTC).isoformat() if at_dt else now_iso),
         }
 
     if prov == "gate":
         pair = symbol.upper().replace("/", "_")
+        if at_dt is not None:
+            at_utc = at_dt.replace(tzinfo=UTC) if at_dt.tzinfo is None else at_dt.astimezone(UTC)
+            if (now - at_utc).total_seconds() > 60:
+                ts = int(at_utc.timestamp())
+                c_url = (
+                    f"https://api.gateio.ws/api/v4/spot/candlesticks"
+                    f"?currency_pair={pair}&interval=1m&to={ts}&limit=1"
+                )
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    resp = await client.get(c_url)
+                    if resp.status_code == 200:
+                        candles = resp.json()
+                        if isinstance(candles, list) and candles and len(candles[0]) >= 3:
+                            # Gate candle format: [ts, quote_vol, close, high, low, open, ...]
+                            close_px = float(Decimal(str(candles[0][2])))
+                            return {
+                                "feed": raw,
+                                "observed_value": close_px,
+                                "source_url": c_url,
+                                "observed_at": at_utc.isoformat(),
+                            }
+                if (now - at_utc).total_seconds() > 3600:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Gate historical candle unavailable for {pair} at {at_utc.isoformat()}",
+                    )
         url = f"https://api.gateio.ws/api/v4/spot/tickers?currency_pair={pair}"
         async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.get(url)
@@ -150,9 +224,11 @@ async def evaluate_deterministic_feed(
     feed: str,
     threshold: Decimal,
     comparator: str = ">=",
+    *,
+    at_dt: datetime | None = None,
 ) -> dict[str, Any]:
     """Evaluate ``observed_value <comparator> threshold`` -> outcome index 0 (YES) or 1 (NO)."""
-    spot = await fetch_deterministic_spot(feed)
+    spot = await fetch_deterministic_spot(feed, at_dt=at_dt)
     obs = Decimal(str(spot["observed_value"]))
     thr = Decimal(str(threshold))
 

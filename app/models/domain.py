@@ -140,6 +140,8 @@ class Market(Base):
     creator_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     resolution_criteria = Column(Text, nullable=True)
     oracle_feed = Column(String(120), nullable=True)
+    oracle_threshold = Column(Numeric(18, 6), nullable=True)
+    oracle_comparator = Column(String(4), nullable=True)
     liquidity_funded_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
     neg_risk = Column(Boolean, default=False)
     winning_outcome_index = Column(Integer, nullable=True)
@@ -253,6 +255,15 @@ class IdempotencyRecord(Base):
 
 class OracleDispute(Base):
     __tablename__ = "oracle_disputes"
+    __table_args__ = (
+        Index(
+            "uq_active_dispute_per_market",
+            "market_id",
+            unique=True,
+            sqlite_where=text("status IN ('PROPOSED', 'DISPUTED')"),
+            postgresql_where=text("status IN ('PROPOSED', 'DISPUTED')"),
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     market_id = Column(String(36), ForeignKey("markets.id"), nullable=False, index=True)

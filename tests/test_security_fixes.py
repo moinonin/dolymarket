@@ -91,8 +91,18 @@ async def test_finalize_requires_a_proposal(client: AsyncClient):
 
 async def test_admin_propose_then_dispute_does_not_crash(client: AsyncClient):
     """The naive/aware datetime comparison in dispute_proposal used to 500."""
+    from decimal import Decimal
+    from sqlalchemy import select
+    from app.db.session import AsyncSessionLocal
+    from app.models.domain import AgxBalance, User
+
     admin = await auth_headers(client, "sec-admin4@example.com")
     await make_admin("sec-admin4@example.com")
+    async with AsyncSessionLocal() as s:
+        u = (await s.execute(select(User).where(User.email == "sec-admin4@example.com"))).scalar_one()
+        s.add(AgxBalance(user_id=u.id, balance=Decimal(100)))
+        await s.commit()
+
     market = await _closed_market(client, admin, "sec-dispute-tz")
 
     p = await client.post(
@@ -103,7 +113,7 @@ async def test_admin_propose_then_dispute_does_not_crash(client: AsyncClient):
     assert p.status_code == 200, p.text
     d = await client.post(
         "/api/v4/prediction/resolution/dispute",
-        json={"market_id": market["id"], "counter_bond": 50},
+        json={"market_id": market["id"], "counter_bond": 100},
         headers=admin,
     )
     assert d.status_code == 200, d.text

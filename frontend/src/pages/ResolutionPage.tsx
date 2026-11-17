@@ -49,8 +49,8 @@ export default function ResolutionPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">Resolution & Oracle</h1>
         </div>
         <p className="mt-2 max-w-2xl text-sm text-slate-400">
-          UMA-style optimistic oracle in simulation: a proposer stakes a bond and asserts the
-          winning outcome. During the challenge window, anyone can post a counter-bond to
+          UMA-style optimistic oracle: a proposer stakes a bond and asserts the winning outcome.
+          During the 2h challenge window, signed-in traders can lock a 100 AGX counter-bond to
           dispute. Uncontested assertions finalize automatically.
         </p>
       </header>
@@ -107,10 +107,10 @@ function ResolutionCard({
   async function dispute() {
     if (setBusy) setBusy(row.market_id)
     try {
-      await api.disputeProposal(row.market_id)
-      push('Counter-bond posted — market moved to DISPUTED.', 'info')
+      await api.disputeProposal(row.market_id, 100)
+      push('100 AGX counter-bond staked — market moved to DISPUTED.', 'info')
     } catch (err: any) {
-      push(err.message || 'Dispute failed', 'error')
+      push(err.message || 'Dispute failed (requires 100 AGX balance)', 'error')
     } finally {
       setBusy(null)
     }
@@ -143,9 +143,9 @@ function ResolutionCard({
           <span className="font-mono text-slate-300">{row.proposer_address || '—'}</span>
         </div>
         <div className="flex items-center justify-between rounded-lg bg-slate-950/60 px-3 py-2">
-          <span className="text-slate-400">Bond</span>
+          <span className="text-slate-400">Proposer Bond / Counter-Bond</span>
           <span className="font-mono text-slate-200">
-            {row.bond_amount != null ? `$${row.bond_amount.toFixed(0)} USDC` : '—'}
+            {row.bond_amount != null ? `$${row.bond_amount.toFixed(0)} USDC` : '—'} · 100 AGX to dispute
           </span>
         </div>
         <div className="flex items-center justify-between rounded-lg bg-slate-950/60 px-3 py-2">
@@ -181,7 +181,7 @@ function ResolutionCard({
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 py-2.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-40"
         >
           <ShieldAlert className="h-4 w-4" />
-          {busy === row.market_id ? 'Posting bond…' : 'Stake Counter-Bond & Dispute'}
+          {busy === row.market_id ? 'Staking 100 AGX…' : 'Stake 100 AGX Counter-Bond & Dispute'}
         </button>
       )}
       {row.dispute_status === 'DISPUTED' && (

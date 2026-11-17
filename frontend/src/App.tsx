@@ -114,8 +114,10 @@ function Shell() {
     page = (
       <LiveMarketDetailPage marketId={route[2]} onBack={() => navigate('live')} />
     )
-  } else if (section === 'live' || section === 'markets') {
+  } else if (section === 'live') {
     page = <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
+  } else if (section === 'markets') {
+    page = <MarketsPage onOpenEvent={openEvent} onOpenLive={() => navigate('live')} />
   } else if (section === 'event' && route[1]) {
     page = <EventDetailPage slug={route[1]} onNavigate={(to) => navigate(to)} />
   } else if (section === 'portfolio') {
@@ -141,6 +143,7 @@ function Shell() {
         onAuth={openAuth}
         onLogout={logout}
       />
+      <SectionSubNav section={section} user={user} onNavigate={navigate} />
       <Suspense
         fallback={
           <div className="mx-auto max-w-6xl px-6 py-16 text-center text-xs text-slate-500">
@@ -167,22 +170,72 @@ function PortfolioWrapper({ onNavigate }: { onNavigate: (to: string) => void }) 
 const NAV_ITEMS = [
   { key: 'live', label: 'Live Markets', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
-  { key: 'tags', label: 'Tags', icon: Tag },
-  { key: 'trades', label: 'Trades', icon: TrendingUp },
-  { key: 'settled', label: 'Settled', icon: Briefcase },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'agx', label: 'AGX', icon: Coins },
   { key: 'resolution', label: 'Resolution', icon: Gavel },
-  { key: 'activity', label: 'Activity', icon: Activity },
 ]
 
 const ANON_NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'live', label: 'Live Markets', icon: Activity },
   { key: 'desks', label: 'Desks', icon: TrendingUp },
-  { key: 'tags', label: 'Tags', icon: Tag },
   { key: 'agx', label: 'AGX', icon: Coins },
 ]
+
+function SectionSubNav({
+  section,
+  user,
+  onNavigate,
+}: {
+  section: string
+  user: { id: string; email: string; is_admin: boolean } | null
+  onNavigate: (to: string) => void
+}) {
+  let tabs: { key: string; label: string }[] | null = null
+  const normalized = section
+
+  if (normalized === 'live' || normalized === 'markets' || normalized === 'tags') {
+    tabs = [
+      { key: 'live', label: 'Live Markets' },
+      { key: 'markets', label: 'Community' },
+      { key: 'tags', label: 'Tags' },
+    ]
+  } else if (user && (normalized === 'desks' || normalized === 'activity')) {
+    tabs = [
+      { key: 'desks', label: 'Pro Desks' },
+      { key: 'activity', label: 'Copy Activity' },
+    ]
+  } else if (user && (normalized === 'portfolio' || normalized === 'trades' || normalized === 'settled')) {
+    tabs = [
+      { key: 'portfolio', label: 'Overview' },
+      { key: 'trades', label: 'Trades' },
+      { key: 'settled', label: 'Settled' },
+    ]
+  }
+
+  if (!tabs) return null
+
+  return (
+    <div className="border-b border-border/60 bg-background/60">
+      <div className="mx-auto flex w-full max-w-[1840px] items-center gap-1 px-4 py-1.5 sm:px-6 lg:px-8 2xl:px-12">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onNavigate(t.key)}
+            className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+              normalized === t.key
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function Nav({
   section,
@@ -203,7 +256,14 @@ function Nav({
       ? [...NAV_ITEMS, { key: 'admin', label: 'Admin', icon: ShieldCheck }]
       : NAV_ITEMS
     : ANON_NAV_ITEMS
-  const activeSection = (user && section === 'home') || section === 'markets' ? 'live' : section
+  const activeSection =
+    (user && section === 'home') || section === 'markets' || section === 'tags'
+      ? 'live'
+      : section === 'activity'
+        ? 'desks'
+        : section === 'trades' || section === 'settled'
+          ? 'portfolio'
+          : section
 
   function go(key: string) {
     onNavigate(key)

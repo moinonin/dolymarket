@@ -93,6 +93,11 @@ async def deposit_amm_liquidity(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    if getattr(market, "tier", "OFFICIAL") != "COMMUNITY" and not getattr(user, "is_admin", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Only COMMUNITY markets or admins can deposit AMM liquidity",
+        )
     pool = await amm.deposit_liquidity(session, market, user.id, body.amount_usdc)
     p_yes, p_no = amm.lmsr_prices(float(pool.q_yes), float(pool.q_no), float(pool.b))
     return {
