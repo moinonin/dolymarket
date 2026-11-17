@@ -20,7 +20,7 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -295,6 +295,7 @@ async def passkey_login_options(
 @router.post("/login/verify")
 async def passkey_login_verify(
     body: PasskeyVerifyRequest,
+    response: Response,
     session: AsyncSession = Depends(get_async_session),
 ):
     """Verify a passkey assertion and issue an access token."""
@@ -302,11 +303,12 @@ async def passkey_login_verify(
     credential_id = payload.get("id") or body.credential_id
     if not credential_id:
         raise HTTPException(status_code=400, detail="Missing passkey credential id")
+    norm_cred_id = credential_id.rstrip("=")
 
     row = (
         await session.execute(
             select(PasskeyCredential).where(
-                PasskeyCredential.credential_id == credential_id
+                PasskeyCredential.credential_id.in_([credential_id, norm_cred_id])
             )
         )
     ).scalar_one_or_none()
@@ -342,6 +344,9 @@ async def passkey_login_verify(
         raise HTTPException(status_code=404, detail="Passkey has no account")
     await session.flush()
 
+    from app.api.v1.auth import _set_refresh_cookie
+
+    _set_refresh_cookie(response, user)
     token = security.create_access_token(user.id, user.email)
     return {
         "access_token": token,

@@ -36,6 +36,11 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      '/ws': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+        ws: true,
+      },
       '/docs': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,

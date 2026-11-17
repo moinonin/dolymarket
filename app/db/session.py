@@ -109,6 +109,10 @@ class _LibsqlSessionFactory:
 
 
 if IS_LIBSQL:
+    import libsql_experimental as _libsql_dbapi
+
+    if not hasattr(_libsql_dbapi, "Binary"):
+        _libsql_dbapi.Binary = bytes
     _connect_args = {"auth_token": DATABASE_TOKEN} if DATABASE_TOKEN else {}
     engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args=_connect_args)
     _SyncSessionLocal = sessionmaker(bind=engine, expire_on_commit=False)

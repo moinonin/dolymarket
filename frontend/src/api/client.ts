@@ -430,14 +430,28 @@ export interface AgxStats {
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = 'dolymarket_auth_token';
+const SESSION_HINT_KEY = 'dolymarket_has_session';
 let inMemoryToken: string | null = null;
 
 export function getStoredToken(): string | null {
   return inMemoryToken;
 }
 
+export function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function setStoredToken(token: string): void {
   inMemoryToken = token;
+  try {
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+  } catch {
+    /* ignore */
+  }
 }
 
 export function clearStoredToken(): void {
@@ -445,6 +459,7 @@ export function clearStoredToken(): void {
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem('pm_auth_token');
+    localStorage.removeItem(SESSION_HINT_KEY);
   } catch {
     /* ignore */
   }

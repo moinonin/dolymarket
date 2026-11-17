@@ -8,6 +8,7 @@ import React, {
 import {
   api,
   getStoredToken,
+  hasSessionHint,
   setStoredToken,
   setUnauthorizedHandler,
   type OAuthProviderInfo,
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applyToken = useCallback(async () => {
     let token = getStoredToken()
-    if (!token) {
+    if (!token && hasSessionHint()) {
       const refreshed = await api.refreshSession()
       token = refreshed?.access_token ?? null
     }

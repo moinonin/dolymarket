@@ -16,6 +16,9 @@ export const OAUTH_MESSAGE_TYPE = 'dolymarket:oauth'
 
 function friendlyPasskeyError(err: any): string {
   const code = err?.code || err?.name
+  if (err?.status === 404 || /unknown passkey/i.test(err?.message || '')) {
+    return 'This saved passkey is not linked to an account on this server (old/reset DB). Sign in with Email or Wallet and register a new passkey in Portfolio -> Security.'
+  }
   if (code === 'NotAllowedError') {
     return 'Passkey request was cancelled or timed out.'
   }
