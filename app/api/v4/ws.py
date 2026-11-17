@@ -1,4 +1,5 @@
 """Real-time WebSocket channels (public depth/bbo/trades + private fills)."""
+import asyncio
 import json
 import os
 
@@ -96,14 +97,19 @@ async def public_ws(ws: WebSocket):
 
 
 @router.websocket("/api/v4/prediction/ws/private")
-async def private_ws(ws: WebSocket, token: str | None = None):
+async def private_ws(ws: WebSocket, token: str | None = None, ticket: str | None = None):
     if not _origin_allowed(ws):
         await ws.close(code=4403)
         return
     user_id: str | None = None
     try:
-        # Authenticate via query param or first auth action message.
-        if token:
+        # Authenticate via single-use ticket, query token, or bounded-timeout auth frame.
+        if ticket:
+            user_id = security.consume_ws_ticket(ticket)
+            if not user_id or not await _user_exists(user_id):
+                await ws.close(code=4401)
+                return
+        elif token:
             try:
                 user_id = security.decode_access_token(token).get("sub")
             except Exception:
@@ -116,7 +122,7 @@ async def private_ws(ws: WebSocket, token: str | None = None):
             await ws.accept()
             try:
                 while user_id is None:
-                    raw = await ws.receive_text()
+                    raw = await asyncio.wait_for(ws.receive_text(), timeout=10.0)
                     try:
                         msg = json.loads(raw)
                     except json.JSONDecodeError:
@@ -126,12 +132,15 @@ async def private_ws(ws: WebSocket, token: str | None = None):
                     if msg.get("action") == "ping":
                         await manager.send_json(ws, {"action": "pong"})
                     elif msg.get("action") == "auth":
-                        tok = msg.get("token")
-                        try:
-                            user_id = security.decode_access_token(tok).get("sub")
-                        except Exception:
-                            await ws.close(code=4401)
-                            return
+                        if msg.get("ticket"):
+                            user_id = security.consume_ws_ticket(msg.get("ticket"))
+                        else:
+                            tok = msg.get("token")
+                            try:
+                                user_id = security.decode_access_token(tok).get("sub")
+                            except Exception:
+                                await ws.close(code=4401)
+                                return
                         if not user_id or not await _user_exists(user_id):
                             user_id = None
                             await ws.close(code=4401)

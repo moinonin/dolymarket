@@ -123,3 +123,54 @@ async def resolve_account(
     session: AsyncSession, user_id: str, for_update: bool = False
 ) -> CollateralAccount:
     return await get_or_create_account(session, user_id, for_update=for_update)
+
+
+async def verified_deposit(
+    session: AsyncSession, user: User, amount, tx_hash: str, chain_id: int
+) -> CollateralAccount:
+    """Credit USDC against a unique on-chain transaction reference (replay-proof)."""
+    amt = q4(amount)
+    if amt <= 0:
+        raise HTTPException(status_code=400, detail="Deposit amount must be positive")
+    ref = f"onchain:{chain_id}:{tx_hash.strip().lower()}"
+    existing = (
+        await session.execute(
+            select(CollateralLedgerEntry).where(CollateralLedgerEntry.reference == ref)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="On-chain deposit receipt already credited")
+    account = await get_or_create_account(session, user.id, for_update=True)
+    account.balance = q4(Decimal(str(account.balance)) + amt)
+    await _ledger(session, account, "DEPOSIT", amt, reference=ref)
+    return account
+
+
+async def reconcile_account_ledger(session: AsyncSession, user_id: str) -> dict:
+    """Verify double-entry ledger entries sum exactly to stored balance & locked_balance."""
+    account = await get_or_create_account(session, user_id, for_update=False)
+    entries = (
+        await session.execute(
+            select(CollateralLedgerEntry).where(CollateralLedgerEntry.account_id == account.id)
+        )
+    ).scalars().all()
+    expected_bal = Decimal("0")
+    expected_locked = Decimal("0")
+    for e in entries:
+        amt = Decimal(str(e.amount))
+        if e.kind in ("DEPOSIT", "WITHDRAWAL", "FEE", "PAYOUT"):
+            expected_bal += amt
+        elif e.kind in ("LOCK", "RELEASE"):
+            expected_locked += amt
+    expected_bal = q4(expected_bal)
+    expected_locked = q4(max(Decimal("0"), expected_locked))
+    actual_bal = q4(account.balance or 0)
+    actual_locked = q4(account.locked_balance or 0)
+    return {
+        "balanced": expected_bal == actual_bal and expected_locked == actual_locked,
+        "expected_balance": format(expected_bal, "f"),
+        "actual_balance": format(actual_bal, "f"),
+        "expected_locked": format(expected_locked, "f"),
+        "actual_locked": format(actual_locked, "f"),
+        "entry_count": len(entries),
+    }

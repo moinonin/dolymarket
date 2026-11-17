@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,8 +71,26 @@ def _user_payload(user: User) -> dict:
     }
 
 
+def _set_refresh_cookie(response: Response, user: User) -> None:
+    refresh = security.create_refresh_token(user.id, user.email)
+    is_prod = os.environ.get("APP_ENV", "").strip().lower() == "production"
+    response.set_cookie(
+        key="dolymarket_refresh",
+        value=refresh,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=7 * 86400,
+        path="/api/v1/auth",
+    )
+
+
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(body: RegisterRequest, session: AsyncSession = Depends(get_async_session)):
+async def register(
+    body: RegisterRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_async_session),
+):
     existing = (
         await session.execute(select(User).where(User.email == body.email))
     ).scalar_one_or_none()
@@ -83,11 +101,16 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_as
     await session.flush()
     await collateral.get_or_create_account(session, user.id)
     token = security.create_access_token(user.id, user.email)
+    _set_refresh_cookie(response, user)
     return TokenResponse(access_token=token, user=_user_payload(user))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_async_session)):
+async def login(
+    body: LoginRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_async_session),
+):
     user = (
         await session.execute(select(User).where(User.email == body.email))
     ).scalar_one_or_none()
@@ -96,7 +119,60 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_async_se
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
     token = security.create_access_token(user.id, user.email)
+    _set_refresh_cookie(response, user)
     return TokenResponse(access_token=token, user=_user_payload(user))
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_session(
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Rotate HttpOnly refresh cookie and issue a new access token."""
+    raw = request.cookies.get("dolymarket_refresh")
+    if not raw:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+    try:
+        payload = security.decode_refresh_token(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid refresh token") from exc
+    user = (
+        await session.execute(select(User).where(User.id == payload.get("sub")))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    security.revoke_jti(payload.get("jti"), payload.get("exp"))
+    _set_refresh_cookie(response, user)
+    token = security.create_access_token(user.id, user.email)
+    return TokenResponse(access_token=token, user=_user_payload(user))
+
+
+@router.post("/logout")
+async def logout(request: Request, response: Response):
+    """Revoke current access/refresh JTIs and clear the refresh cookie."""
+    auth_hdr = request.headers.get("Authorization", "")
+    if auth_hdr.lower().startswith("bearer "):
+        try:
+            p = security.decode_access_token(auth_hdr.split(" ", 1)[1].strip())
+            security.revoke_jti(p.get("jti"), p.get("exp"))
+        except Exception:
+            pass
+    raw_ref = request.cookies.get("dolymarket_refresh")
+    if raw_ref:
+        try:
+            rp = security.decode_refresh_token(raw_ref)
+            security.revoke_jti(rp.get("jti"), rp.get("exp"))
+        except Exception:
+            pass
+    response.delete_cookie("dolymarket_refresh", path="/api/v1/auth")
+    return {"status": "logged_out"}
+
+
+@router.post("/ws-ticket")
+async def issue_ws_ticket(user: User = Depends(get_current_user)):
+    """Mint a single-use 30s WebSocket authentication ticket."""
+    return {"ticket": security.create_ws_ticket(user.id, ttl_seconds=30), "expires_in": 30}
 
 
 @router.get("/me")
@@ -136,6 +212,17 @@ async def rotate_api_key(
         "message_format": "X-TIMESTAMP + METHOD + PATH + BODY",
         "headers": ["X-API-KEY", "X-TIMESTAMP", "X-SIGNATURE"],
     }
+
+
+@router.delete("/api-key")
+async def revoke_api_key(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Revoke the caller's current HMAC API key."""
+    user.api_key = None
+    await session.flush()
+    return {"status": "revoked"}
 
 
 @router.post("/wallet/challenge", response_model=WalletChallengeResponse)

@@ -628,3 +628,30 @@ class AmmLpPosition(Base):
     lp_shares = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
     deposited_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
     created_at = Column(DateTime(timezone=True), default=_now_utc)
+
+
+class TokenPartitionState(Base):
+    """Durable per-token matching partition leader lease and monotonic sequence state."""
+
+    __tablename__ = "token_partition_states"
+
+    token_id = Column(String(100), primary_key=True)
+    leader_id = Column(String(100), nullable=True, index=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_sequence_id = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), default=_now_utc, onupdate=_now_utc)
+
+
+class OutboxEvent(Base):
+    """Transactional outbox for committed engine/order/depth events."""
+
+    __tablename__ = "outbox_events"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    token_id = Column(String(100), nullable=True, index=True)
+    partition_seq = Column(Integer, nullable=False, default=0, index=True)
+    channel = Column(String(50), nullable=False, index=True)
+    payload_json = Column(JSON, nullable=False)
+    published = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now_utc, index=True)
+    published_at = Column(DateTime(timezone=True), nullable=True)

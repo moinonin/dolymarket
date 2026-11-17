@@ -615,3 +615,14 @@ async def get_desk_market_maker_status(
     if status is None:
         return {"desk_id": desk_id, "running": False, "bots": []}
     return status
+
+
+@router.post("/desks/mm/kill-all")
+async def global_mm_kill_switch(
+    user: User = Depends(get_current_user),
+):
+    """Admin-only global Market Maker kill switch."""
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="ADMIN_REQUIRED")
+    stopped = await mm_manager.kill_all()
+    return {"status": "killed", "bots_stopped": stopped}

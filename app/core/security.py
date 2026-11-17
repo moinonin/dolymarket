@@ -69,12 +69,43 @@ def unusable_password_hash() -> str:
     return hash_password(secrets.token_urlsafe(48))
 
 
+_REVOKED_JTIS: dict[str, float] = {}
+_WS_TICKETS: dict[str, tuple[str, float]] = {}
+
+
+def revoke_jti(jti: str | None, exp: float | None = None) -> None:
+    import time
+
+    if not jti:
+        return
+    now = time.time()
+    if len(_REVOKED_JTIS) >= 10000:
+        for k in [k for k, v in _REVOKED_JTIS.items() if v <= now]:
+            _REVOKED_JTIS.pop(k, None)
+    _REVOKED_JTIS[jti] = exp if exp and exp > now else now + TOKEN_TTL_SECONDS
+
+
+def is_jti_revoked(jti: str | None) -> bool:
+    import time
+
+    if not jti:
+        return False
+    exp = _REVOKED_JTIS.get(jti)
+    if exp is None:
+        return False
+    if exp <= time.time():
+        _REVOKED_JTIS.pop(jti, None)
+        return False
+    return True
+
+
 def create_access_token(user_id: str, email: str) -> str:
     import time
 
     payload = {
         "sub": user_id,
         "email": email,
+        "typ": "access",
         "iat": int(time.time()),
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
         "jti": str(uuid.uuid4()),
@@ -82,8 +113,63 @@ def create_access_token(user_id: str, email: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
+def create_refresh_token(user_id: str, email: str, ttl_seconds: int = 7 * 86400) -> str:
+    import time
+
+    now = int(time.time())
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "typ": "refresh",
+        "iat": now,
+        "exp": now + ttl_seconds,
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    if payload.get("typ") == "refresh":
+        raise jwt.InvalidTokenError("Refresh token cannot be used as access token")
+    if is_jti_revoked(payload.get("jti")):
+        raise jwt.InvalidTokenError("Token has been revoked")
+    return payload
+
+
+def decode_refresh_token(token: str) -> dict:
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    if payload.get("typ") != "refresh":
+        raise jwt.InvalidTokenError("Not a refresh token")
+    if is_jti_revoked(payload.get("jti")):
+        raise jwt.InvalidTokenError("Refresh token has been revoked")
+    return payload
+
+
+def create_ws_ticket(user_id: str, ttl_seconds: int = 30) -> str:
+    import time
+
+    now = time.monotonic()
+    if len(_WS_TICKETS) >= 10000:
+        for k in [k for k, (_, exp) in _WS_TICKETS.items() if exp <= now]:
+            _WS_TICKETS.pop(k, None)
+    ticket = secrets.token_urlsafe(24)
+    _WS_TICKETS[ticket] = (user_id, now + ttl_seconds)
+    return ticket
+
+
+def consume_ws_ticket(ticket: str | None) -> str | None:
+    import time
+
+    if not ticket:
+        return None
+    entry = _WS_TICKETS.pop(ticket, None)
+    if entry is None:
+        return None
+    user_id, exp = entry
+    if exp <= time.monotonic():
+        return None
+    return user_id
 
 
 STATE_TTL_SECONDS = 600

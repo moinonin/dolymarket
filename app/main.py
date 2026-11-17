@@ -97,10 +97,18 @@ def _credential(request: Request) -> str:
     )
 
 
+_REQUEST_COUNT = 0
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Token-bucket limits for order mutations and public reads."""
+    """Token-bucket limits + X-Request-ID correlation for all requests."""
 
     async def dispatch(self, request: Request, call_next):
+        import uuid
+
+        global _REQUEST_COUNT
+        _REQUEST_COUNT += 1
+        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
         path = request.url.path
         policy = None
         key = ""
@@ -136,7 +144,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "X-RateLimit-Limit": label,
                     },
                 )
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
 
 
 @asynccontextmanager
@@ -274,6 +284,24 @@ app.include_router(dexbuilder_proxy_router.router)
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "dolymarket"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus-compatible operational metrics."""
+    from fastapi.responses import PlainTextResponse
+    from app.ws.manager import manager
+    from app.services.market_maker import mm_manager
+
+    active_bots = sum(1 for st in mm_manager._desks.values() if st.running)
+    lines = [
+        f"dolymarket_requests_total {_REQUEST_COUNT}",
+        f"dolymarket_ws_public_connections {len(manager.public)}",
+        f"dolymarket_ws_private_connections {len(manager.private)}",
+        f"dolymarket_mm_active_bots {active_bots}",
+        f"dolymarket_mm_kill_switch {1 if mm_manager.global_kill_switch else 0}",
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 # Documentation site (built via `mkdocs build` in the repo root). Mounted

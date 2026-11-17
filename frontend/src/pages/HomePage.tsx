@@ -106,16 +106,16 @@ export default function HomePage({
           <div className="lg:col-span-7">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
               <Sparkles className="h-3 w-3" />
-              Trade the probability, not the narrative
+              Sub-cent CLOB. Smart AMM Backstop.
             </span>
             <h1 className="mt-5 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-              Prediction Markets with a{' '}
-              <span className="text-emerald-400">Real Matching Engine</span>
+              Trade Reality{' '}
+              <span className="text-emerald-400">on Institutional Order Books</span>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400">
-              Trade real outcomes on real order books. Prices move as the crowd
-              trades, fees shrink as the outcome becomes certain, and winning
-              shares redeem 1:1 in USDC.
+              Route every trade across live order books and an AMM backstop, see
+              oracle clarity before you enter, and redeem winning shares 1:1 in
+              USDC straight to your wallet.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <button

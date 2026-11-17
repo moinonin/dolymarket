@@ -16,6 +16,10 @@ import threading
 import time
 
 
+MAX_BUCKETS = 20_000
+BUCKET_IDLE_TTL = 600.0
+
+
 class TokenBucketLimiter:
     def __init__(self) -> None:
         self._buckets: dict[str, tuple[float, float]] = {}
@@ -29,6 +33,15 @@ class TokenBucketLimiter:
         """
         now = time.monotonic()
         with self._lock:
+            if len(self._buckets) >= MAX_BUCKETS and key not in self._buckets:
+                stale = [k for k, (_, last_t) in self._buckets.items() if now - last_t > BUCKET_IDLE_TTL]
+                for k in stale:
+                    self._buckets.pop(k, None)
+                if len(self._buckets) >= MAX_BUCKETS:
+                    # Evict oldest quarter to bound memory under key-flooding attacks.
+                    oldest = sorted(self._buckets.items(), key=lambda item: item[1][1])[: MAX_BUCKETS // 4]
+                    for k, _ in oldest:
+                        self._buckets.pop(k, None)
             tokens, last = self._buckets.get(key, (capacity, now))
             tokens = min(capacity, tokens + (now - last) * rate)
             if tokens < 1.0:

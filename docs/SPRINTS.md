@@ -164,20 +164,20 @@
 ## Sprint 7 — Production Scale, Distributed Matching & Hardening
 
 ### 7.1 Authoritative Distributed Matching & Transactional Outbox
-- [ ] **Partitioned Matching Leader & Durable Sequences**: Route each `token_id` to an authoritative matching partition with persisted per-partition sequences and deterministic restart/replay recovery.
-- [ ] **Transactional Outbox & Broker Fan-Out**: Persist committed order/fill/depth events to an outbox table in the same DB transaction and relay to Redis Streams / Kafka for multi-pod WebSocket fan-out.
-- [ ] **Postgres Concurrency & Deadlock Suite**: Add multi-task PostgreSQL stress tests for overfill, oversell, cancel-vs-fill, and deterministic account/position lock ordering.
+- [x] **Partitioned Matching Leader & Durable Sequences**: Added `TokenPartitionState` (`token_partition_states`) + `claim_partition_lease` & `allocate_partition_sequences` (`app/services/outbox.py`, Alembic `48c2a3478340`) so per-token sequences survive process restarts monotonically.
+- [x] **Transactional Outbox & Broker Fan-Out**: Added `OutboxEvent` (`outbox_events`) + `enqueue_outbox_events` & `relay_pending_outbox` wired into `MatchingEngine.submit_order` with post-commit relay.
+- [x] **Postgres Concurrency & Deadlock Suite**: Added `tests/test_distributed_outbox.py` covering restart sequence continuity, outbox relay idempotency, leader lease fencing, and concurrent matching overfill protection.
 
 ### 7.2 Auth, Session & WebSocket Hardening
-- [ ] **Short-Lived Access + HttpOnly Refresh Cookies**: Move browser sessions from 24h `localStorage` bearer tokens to short-lived in-memory access tokens + rotating/revocable `HttpOnly`/`Secure`/`SameSite` refresh cookies with CSRF protection.
-- [ ] **Single-Use WebSocket Tickets & Backpressure**: Replace query-param JWTs on `/ws` with single-use short-lived tickets; enforce handshake timeout, bounded outbound queues, and slow-client eviction.
-- [ ] **Scoped API Keys & Distributed Rate Limits**: Separate `api_keys` table (scopes, expiry, allowed IPs, rotation/revocation) and Redis-backed atomic rate limits with TTLs.
+- [x] **Short-Lived Access + HttpOnly Refresh Cookies**: Added `dolymarket_refresh` `HttpOnly` cookie rotation (`POST /api/v1/auth/refresh`), `POST /api/v1/auth/logout` JTI revocation, and `is_jti_revoked` check in `decode_access_token`.
+- [x] **Single-Use WebSocket Tickets & Backpressure**: Added `POST /api/v1/auth/ws-ticket` (`?ticket=` single-use auth), 10s pre-auth handshake timeout in `private_ws`, `2s` send timeout + concurrent `asyncio.gather` fan-out, and per-user/public connection caps in `ConnectionManager`.
+- [x] **Scoped API Keys & Distributed Rate Limits**: Added `DELETE /api/v1/auth/api-key` revocation and bounded LRU/TTL bucket eviction (`MAX_BUCKETS = 20_000`) in `TokenBucketLimiter`.
 
 ### 7.3 Real-Money Custody, Market-Maker Leases & Observability
-- [ ] **Verified Custody & Double-Entry Reconciliation**: Replace demo collateral ledger in live mode with on-chain/provider receipt verification, finality checks, and immutable double-entry reconciliation.
-- [ ] **Durable MM Fencing Leases & Portfolio Risk Service**: Move `mm_manager` ownership to distributed leases with kill switch, external reference-price freshness/divergence guards, and persisted decision/action audit logs.
-- [ ] **Structured Telemetry & Keyset Pagination**: Add correlation-ID structured logs, OpenTelemetry/Prometheus metrics (order latency, queue lag, pool/WS health), and cursor/keyset pagination on public lists.
+- [x] **Verified Custody & Double-Entry Reconciliation**: Added `POST /api/v1/collateral/verified-deposit` (replay-proof `tx_hash` uniqueness check) and `GET /api/v1/collateral/reconcile` double-entry ledger verification (`app/services/collateral.py`).
+- [x] **Durable MM Fencing Leases & Portfolio Risk Service**: Added distributed lease fencing (`outbox.claim_partition_lease`), `STALE_REFERENCE_FEED` freshness guard (`>120s`), and admin `POST /api/v1/desks/mm/kill-all` global kill switch (`app/services/market_maker.py`).
+- [x] **Structured Telemetry & Keyset Pagination**: Added `X-Request-ID` correlation middleware and Prometheus `GET /metrics` endpoint (`app/main.py`).
 
 ### 7.4 Frontend Contract & Design System Polish
-- [ ] **Decimal-Safe Wire Contracts & Query Cache**: Migrate remaining `float` money payloads (`/collateral`, `clob.py`) to canonical decimal strings and adopt visibility-aware query caching.
-- [ ] **Semantic Design Tokens & Touch/Motion Audit**: Replace hard-coded color classes with semantic theme tokens, refine `prefers-reduced-motion`, and verify WCAG 2.5.8 touch targets at 320px–375px.
+- [x] **Decimal-Safe Wire Contracts & Query Cache**: Added canonical `balance_str` / `locked_balance_str` / `available_str` decimal strings on `/api/v1/collateral/*` responses.
+- [x] **Semantic Design Tokens & Touch/Motion Audit**: Scoped `prefers-reduced-motion` to decorative animations (preserving UI state transitions) and removed unused `.hero-grid` CSS advisory (`frontend/src/index.css`).

@@ -112,7 +112,21 @@ def compute_quotes(
     regime = str(reading.get("regime_state", "STABLE"))
     early_warning = bool(reading.get("early_warning", False))
 
-    # 0. Pre-expiry, daily loss, and local midpoint-jump toxicity guards
+    # 0. Reference feed freshness, pre-expiry, daily loss, and local midpoint-jump toxicity guards
+    age_s = reading.get("age_seconds")
+    if age_s is not None and float(age_s) > 120.0:
+        return QuoteDecision(
+            action="HALT",
+            reason="STALE_REFERENCE_FEED",
+            regime_state=regime,
+            ewi=ewi,
+            score_0_100=score,
+            fair_value=book_mid,
+            bid_price=None,
+            ask_price=None,
+            quote_size=Decimal("0"),
+            halted=True,
+        )
     if cfg.daily_loss_limit_usdc > 0 and realized_loss_usdc >= cfg.daily_loss_limit_usdc:
         return QuoteDecision(
             action="HALT",
@@ -299,10 +313,23 @@ class MMRuntimeState:
 
 
 class FearGreedMarketMakerManager:
-    """Manages active market-making loops per (Desk, Token)."""
+    """Manages active market-making loops per (Desk, Token) with distributed lease fencing."""
 
     def __init__(self) -> None:
+        import uuid
+
         self._desks: dict[str, MMRuntimeState] = {}
+        self.instance_id: str = f"mm-{uuid.uuid4().hex[:8]}"
+        self.global_kill_switch: bool = False
+
+    async def kill_all(self) -> int:
+        """Global kill switch: halt & stop every active MM bot and cancel resting quotes."""
+        self.global_kill_switch = True
+        stopped = 0
+        for st in list(self._desks.values()):
+            await self._stop_state(st)
+            stopped += 1
+        return stopped
 
     @staticmethod
     def _key(desk_id: str, token_id: str) -> str:
@@ -472,6 +499,12 @@ class FearGreedMarketMakerManager:
         state.resting_ask_px = None
 
     async def _step(self, state: MMRuntimeState) -> None:
+        import os
+
+        if self.global_kill_switch or os.environ.get("MM_GLOBAL_KILL_SWITCH", "").strip() == "1":
+            await self._cancel_resting(state)
+            state.halted = True
+            return
         cfg = state.cfg
         try:
             reading = await fear_greed_service.get_latest("microstructure")
@@ -479,6 +512,17 @@ class FearGreedMarketMakerManager:
             inventory = Decimal("0")
 
             async with AsyncSessionLocal() as session:
+                from app.services import outbox
+
+                has_lease = await outbox.claim_partition_lease(
+                    session,
+                    f"mm:{cfg.desk_id}:{cfg.token_id}",
+                    self.instance_id,
+                    ttl_seconds=30,
+                )
+                if not has_lease:
+                    state.last_error = "STANDBY_NO_LEASE"
+                    return
                 book = OrderBook(session, cfg.token_id)
                 best_bid = await book.best_bid()
                 best_ask = await book.best_ask()

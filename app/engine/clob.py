@@ -359,12 +359,27 @@ class MatchingEngine:
         )
         if book_changed:
             events.append(self._depth_event(book))
+
+        from app.services import outbox
+
+        if events:
+            seqs = await outbox.allocate_partition_sequences(
+                session, token.token_id, count=len(events)
+            )
+            for ev, p_seq in zip(events, seqs):
+                ev["partition_seq"] = p_seq
+            await outbox.enqueue_outbox_events(session, token.token_id, events)
+
         if self.broadcaster is not None:
-            from app.db.session import queue_post_commit
+            from app.db.session import AsyncSessionLocal, queue_post_commit
 
             if isinstance(getattr(session, "info", None), dict):
-                evs = list(events)
-                queue_post_commit(session, lambda: self._emit(evs))
+                async def _relay():
+                    async with AsyncSessionLocal() as s:
+                        await outbox.relay_pending_outbox(s, self.broadcaster)
+                        await s.commit()
+
+                queue_post_commit(session, _relay)
             else:
                 await self._emit(events)
         self.last_events = events

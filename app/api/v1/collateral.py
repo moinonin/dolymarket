@@ -46,13 +46,17 @@ async def get_balance(
     session: AsyncSession = Depends(get_async_session),
 ):
     account = await collateral.get_or_create_account(session, user.id)
+    bal = collateral.q4(account.balance or 0)
+    locked = collateral.q4(account.locked_balance or 0)
+    avail = collateral.q4(bal - locked)
     return {
         "user_id": user.id,
-        "balance": float(account.balance or 0),
-        "locked_balance": float(account.locked_balance or 0),
-        "available": float(
-            (account.balance or 0) - (account.locked_balance or 0)
-        ),
+        "balance": float(bal),
+        "locked_balance": float(locked),
+        "available": float(avail),
+        "balance_str": format(bal, "f"),
+        "locked_balance_str": format(locked, "f"),
+        "available_str": format(avail, "f"),
         "currency": account.currency,
     }
 
@@ -78,6 +82,8 @@ async def deposit(
         "user_id": user.id,
         "balance": float(account.balance),
         "locked_balance": float(account.locked_balance),
+        "balance_str": format(collateral.q4(account.balance), "f"),
+        "locked_balance_str": format(collateral.q4(account.locked_balance), "f"),
         "currency": account.currency,
     }
     if cache_key:
@@ -85,6 +91,37 @@ async def deposit(
             _SEEN_DEPOSIT_KEYS.clear()
         _SEEN_DEPOSIT_KEYS[cache_key] = payload
     return payload
+
+
+class VerifiedDepositRequest(AmountRequest):
+    tx_hash: str = Field(min_length=10, max_length=128)
+    chain_id: int = Field(default=8453, ge=1)
+
+
+@router.post("/verified-deposit")
+async def verified_deposit(
+    body: VerifiedDepositRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    account = await collateral.verified_deposit(
+        session, user, body.amount, tx_hash=body.tx_hash, chain_id=body.chain_id
+    )
+    return {
+        "user_id": user.id,
+        "balance": float(account.balance),
+        "balance_str": format(collateral.q4(account.balance), "f"),
+        "currency": account.currency,
+        "tx_hash": body.tx_hash,
+    }
+
+
+@router.get("/reconcile")
+async def reconcile(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await collateral.reconcile_account_ledger(session, user.id)
 
 
 @router.post("/withdraw")

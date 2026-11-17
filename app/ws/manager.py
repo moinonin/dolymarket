@@ -6,6 +6,11 @@ from typing import Any
 from starlette.websockets import WebSocketState
 
 
+MAX_PUBLIC_CONNECTIONS = 1000
+MAX_PRIVATE_PER_USER = 10
+SEND_TIMEOUT_SECONDS = 2.0
+
+
 class ConnectionManager:
     def __init__(self):
         self.public: list[Any] = []          # websocket objects
@@ -14,13 +19,17 @@ class ConnectionManager:
         self._loop_lock = asyncio.Lock()
 
     async def connect_public(self, ws) -> None:
-        # A route that already accepted (e.g. during a pre-auth handshake)
-        # must not be accepted twice: Starlette raises RuntimeError.
+        if len(self.public) >= MAX_PUBLIC_CONNECTIONS:
+            await ws.close(code=4429)
+            return
         if ws.client_state == WebSocketState.CONNECTING:
             await ws.accept()
         self.public.append(ws)
 
     async def connect_private(self, ws, user_id: str) -> None:
+        user_sockets = [sock for sock, uid in self.private.items() if uid == user_id]
+        if len(user_sockets) >= MAX_PRIVATE_PER_USER:
+            self.disconnect(user_sockets[0])
         if ws.client_state == WebSocketState.CONNECTING:
             await ws.accept()
         self.private[ws] = user_id
@@ -36,7 +45,10 @@ class ConnectionManager:
 
     async def send_json(self, ws, payload: dict) -> None:
         try:
-            await ws.send_text(json.dumps(payload, default=str))
+            await asyncio.wait_for(
+                ws.send_text(json.dumps(payload, default=str)),
+                timeout=SEND_TIMEOUT_SECONDS,
+            )
         except Exception:
             self.disconnect(ws)
 
@@ -48,8 +60,11 @@ class ConnectionManager:
             ]
         else:
             targets = list(self.public)
-        for ws in targets:
-            await self.send_json(ws, payload)
+        if targets:
+            await asyncio.gather(
+                *(self.send_json(ws, payload) for ws in targets),
+                return_exceptions=True,
+            )
 
     def notify(self, payload: dict) -> None:
         """Fire-and-forget broadcast from sync context (engine callbacks)."""
