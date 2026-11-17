@@ -1,4 +1,4 @@
-# Dolymarket Engineering Sprints & Roadmap (Single Source of Truth)
+# AlgoXen Engineering Sprints & Roadmap (Single Source of Truth)
 
 > **Single Source of Truth** consolidating all active, completed, and planned work from [dexbuilder-todo.md](dexbuilder-todo.md), [security-audit.md](security-audit.md), [improve.md](improve.md), and [GRG_APPLICATION.md](GRG_APPLICATION.md).
 

@@ -1,7 +1,6 @@
 import React from 'react'
 import {
   Activity,
-  BarChart3,
   BookOpen,
   Cpu,
   ExternalLink,
@@ -25,17 +24,23 @@ export function Footer({
   return (
     <footer className="border-t border-slate-800/80 bg-slate-950/70 pt-14 pb-10 text-xs font-geist-mono">
       <div className="mx-auto max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12">
-        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           {/* Brand & System Status */}
-          <div className="sm:col-span-2 lg:col-span-2">
+          <div className="sm:col-span-2 md:col-span-3 lg:col-span-2">
             <button
               type="button"
               onClick={scrollToTop}
               title="Scroll to top"
               className="group flex items-center gap-2 text-left text-base font-bold text-white transition hover:text-emerald-400"
             >
-              <BarChart3 className="h-5 w-5 text-emerald-400 transition group-hover:scale-105" />
-              <span>Dolymarket</span>
+              <img
+                src="/logo.png"
+                alt=""
+                width={24}
+                height={24}
+                className="h-6 w-6 shrink-0 object-contain transition group-hover:scale-105"
+              />
+              <span>AlgoXen</span>
             </button>
             <p className="mt-3 max-w-sm text-xs leading-relaxed text-slate-400">
               Prediction market protocol powered by a deterministic central limit order book (CLOB). Low-latency matching, verifiable oracle resolution, and simulated USDC settlement.
@@ -226,10 +231,10 @@ export function Footer({
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-[11px] text-slate-500">
             <div>
               <p>
-                © {new Date().getFullYear()} Dolymarket Protocol. All rights reserved.
+                © {new Date().getFullYear()} AlgoXen Protocol. All rights reserved.
               </p>
               <p className="mt-1 text-slate-500">
-                Dolymarket is a simulated trading environment with virtual USDC balances. Nothing here constitutes investment, legal, or financial advice.
+                AlgoXen is a simulated trading environment with virtual USDC balances. Nothing here constitutes investment, legal, or financial advice.
               </p>
             </div>
 

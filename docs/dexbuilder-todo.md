@@ -6,7 +6,7 @@
 
 The public DexBuilder prediction surfaces are consumed and displayed today.
 
-| Surface | Upstream | Dolymarket route | State |
+| Surface | Upstream | AlgoXen route | State |
 |---|---|---|---|
 | Markets list | `GET /api/v4/prediction/markets` | `GET /api/v4/prediction/live/markets` | done (active + closed history via `status`/`offset`) |
 | Market detail | `GET /api/v4/prediction/markets/{id}` | `GET /api/v4/prediction/live/markets/{id}` | done |
@@ -84,7 +84,7 @@ means the key itself is unknown to DexBuilder (a wrong signature answers
 - [x] Obtain a valid DexBuilder prediction-markets/broker API key and verify usertrades/positions/orders/account_book/claims/deposit-history/withdraw-history end-to-end (`check_credentials()` probes `/api/v4/dexbuilder/assets`; `event_contracts` order placement awaits upstream key permission).
 - [x] Admin console: create events and markets, close markets, review Pro Desks and audit copy jobs (admin-only routes, `is_admin` exposed to the client).
 - [x] Copy-job history view for the trader (Activity) and for admins (console tab).
-- [x] WebSocket bridge: the backend owns the upstream protocol and translates it into the Dolymarket envelope (`/api/v4/prediction/live/ws`), the live market page streams depth/bbo/trades and keeps REST polling as the fallback (`VITE_DEXBUILDER_WS_URL` is gone — the broker url is server-side only).
+- [x] WebSocket bridge: the backend owns the upstream protocol and translates it into the AlgoXen envelope (`/api/v4/prediction/live/ws`), the live market page streams depth/bbo/trades and keeps REST polling as the fallback (`VITE_DEXBUILDER_WS_URL` is gone — the broker url is server-side only).
 - [ ] Verify WebSocket streaming end-to-end against broker.dexbuilder.com (the bridge is implemented and tested against a local fake broker; the live broker still answers 503).
 - [x] Wire Broker order placement/cancellation (`POST/GET/DELETE /api/v4/dexbuilder/orders`) and `LiveTradeTicket` on the Live Market page; also wire `account_book`, `claims`, and platform deposit/withdrawal history in `PortfolioPage` (`Broker Account` tab).
 - [ ] Once `event_contracts` permission is enabled on the Broker key: verify live `ge_*` order placement end-to-end and purge the local seeded/demo market universe.

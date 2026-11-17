@@ -1,6 +1,6 @@
 # Market Details, Clarity & Microstructure
 
-Dolymarket surfaces two complementary market views: **Local / Community Markets** (`#markets`, `#event/<slug>`, `#market/<id>`) and **Live DexBuilder Markets** (`#live`, `#live/market/<id>`).
+AlgoXen surfaces two complementary market views: **Local / Community Markets** (`#markets`, `#event/<slug>`, `#market/<id>`) and **Live DexBuilder Markets** (`#live`, `#live/market/<id>`).
 
 ---
 

@@ -1,7 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import {
   Activity,
-  BarChart3,
   BookOpen,
   Briefcase,
   Coins,
@@ -218,8 +217,14 @@ function Nav({
           onClick={() => go(user ? 'live' : 'home')}
           className="flex shrink-0 items-center gap-2 text-sm font-bold tracking-tight text-foreground transition hover:text-accent"
         >
-          <BarChart3 className="h-5 w-5 text-accent" />
-          Dolymarket
+          <img
+            src="/logo.png"
+            alt=""
+            width={24}
+            height={24}
+            className="h-6 w-6 shrink-0 object-contain"
+          />
+          <span>AlgoXen</span>
         </button>
 
         {/* Desktop nav */}

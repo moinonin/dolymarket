@@ -1,6 +1,6 @@
-# Dolymarket UI & Platform Guide
+# AlgoXen UI & Platform Guide
 
-Dolymarket is a hybrid prediction market platform combining an **off-chain Central Limit Order Book (CLOB)**, an **overflow-safe LMSR Automated Market Maker (AMM)**, **Conditional Tokens Framework (CTF)** settlement, **Pro Desk copy trading & Fear/Greed market making**, and **non-custodial Web3 wallet signing**.
+AlgoXen is a hybrid prediction market platform combining an **off-chain Central Limit Order Book (CLOB)**, an **overflow-safe LMSR Automated Market Maker (AMM)**, **Conditional Tokens Framework (CTF)** settlement, **Pro Desk copy trading & Fear/Greed market making**, and **non-custodial Web3 wallet signing**.
 
 ---
 

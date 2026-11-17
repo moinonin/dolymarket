@@ -251,7 +251,7 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
     <Dialog onClose={onClose} labelledBy="auth-modal-title">
       <div>
         <h2 id="auth-modal-title" className="text-lg font-bold text-white">
-          {mode === 'register' ? 'Join Dolymarket' : 'Welcome Back'}
+          {mode === 'register' ? 'Join AlgoXen' : 'Welcome Back'}
         </h2>
         <p className="mt-1 text-xs text-slate-400">
           Connect your Web3 crypto wallet for non-custodial, passwordless trading.
@@ -297,7 +297,7 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@dolymarket.internal"
+                  placeholder="admin@algoxen.internal"
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none focus:border-emerald-500"
                 />
               </label>

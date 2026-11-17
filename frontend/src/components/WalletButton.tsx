@@ -78,7 +78,7 @@ export function WalletButton() {
   const handleTestSign = async () => {
     setSignStatus('Signing in wallet...')
     const sig = await signMessage(
-      `Dolymarket Non-Custodial Verification
+      `AlgoXen Non-Custodial Verification
 Timestamp: ${new Date().toISOString()}
 Wallet: ${address}`
     )
@@ -215,13 +215,13 @@ Wallet: ${address}`
                 </div>
               </div>
 
-              {/* Dolymarket User Session Status */}
+              {/* AlgoXen User Session Status */}
               {user ? (
                 <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-2.5 text-xs text-emerald-300">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                     <div>
-                      <span className="font-semibold text-[11px]">Dolymarket Session Active</span>
+                      <span className="font-semibold text-[11px]">AlgoXen Session Active</span>
                       <p className="text-[10px] text-slate-400 truncate max-w-[200px]">{user.email}</p>
                     </div>
                   </div>
@@ -230,7 +230,7 @@ Wallet: ${address}`
                 <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs text-amber-200">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                    <span className="text-[11px]">Wallet connected, not signed in to Dolymarket.</span>
+                    <span className="text-[11px]">Wallet connected, not signed in to AlgoXen.</span>
                   </div>
                   <button
                     type="button"

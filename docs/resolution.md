@@ -1,6 +1,6 @@
 # Resolution & Oracle (`#resolution`)
 
-Dolymarket resolves markets through a bonded **optimistic oracle** (`app/services/settlement.py`) augmented with **pre-trade Oracle Clarity scoring** and **deterministic price/event feeds** (`app/services/oracle.py`).
+AlgoXen resolves markets through a bonded **optimistic oracle** (`app/services/settlement.py`) augmented with **pre-trade Oracle Clarity scoring** and **deterministic price/event feeds** (`app/services/oracle.py`).
 
 ---
 

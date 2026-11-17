@@ -1,6 +1,6 @@
 # Live DexBuilder data
 
-Dolymarket can display **live** prediction-market data straight from
+AlgoXen can display **live** prediction-market data straight from
 `api.dexbuilder.com` — real markets, quotes, order books, candles and the
 trade tape — without any DexBuilder account.
 
@@ -12,7 +12,7 @@ button on the Markets page).
 DexBuilder keeps its settled history: `status=closed` returns markets that have
 already resolved, and `offset` walks back through it in pages of up to 100.
 
-| Dolymarket filter | Upstream status |
+| AlgoXen filter | Upstream status |
 |---|---|
 | `active` (or `open`) | `active` |
 | `resolved` (or `settled`, `historical`) | `closed` |
@@ -35,7 +35,7 @@ The response carries the pagination cursor:
 
 DexBuilder does not expose a `winner` field. It settles a closed market by
 pricing the winning outcome at exactly `1` and the losing outcome at `0`, so
-Dolymarket derives the result from the settlement prices:
+AlgoXen derives the result from the settlement prices:
 
 - exactly one outcome priced `1` → that outcome is the winner
   (`winning_outcome_index`, `winning_outcome`)
@@ -49,7 +49,7 @@ back with **Older →**; resolved cards show the outcome that won.
 
 ## What is live
 
-| Surface | Upstream endpoint | Dolymarket route |
+| Surface | Upstream endpoint | AlgoXen route |
 |---|---|---|
 | Markets list | `GET /api/v4/prediction/markets` | `GET /api/v4/prediction/live/markets` |
 | Market detail | `GET /api/v4/prediction/markets/{id}` | `GET /api/v4/prediction/live/markets/{id}` |
@@ -74,7 +74,7 @@ browser  --ws-->  /api/v4/prediction/live/ws   --ws-->  wss://broker.dexbuilder.
 ```
 
 The **browser never talks to the upstream broker**. The upstream speaks its own
-protocol, the server owns it and translates every frame into the Dolymarket
+protocol, the server owns it and translates every frame into the AlgoXen
 envelope, so the page keeps using the same client it already uses for the local
 order book.
 
@@ -148,7 +148,7 @@ Live markets are a **market data feed**, not a tradeable venue in this build:
 - Every upstream numeric is a string (`"0.028"`); it is parsed into `Decimal`
   before any derivation, and only converted to a JSON number at the edge.
 - `mid_price = (best_bid + best_ask) / 2`.
-- Upstream sends asks **descending** and bids **ascending**; Dolymarket
+- Upstream sends asks **descending** and bids **ascending**; AlgoXen
   normalizes both sides so the best price is first (matching the local order
   book contract).
 - Outcome labels are localized upstream (`{"en": ..., "cn": ...}`); English is
@@ -177,7 +177,7 @@ Live markets are a **market data feed**, not a tradeable venue in this build:
 
 ## Known upstream gaps
 
-| Upstream surface | Behaviour | Dolymarket handling |
+| Upstream surface | Behaviour | AlgoXen handling |
 |---|---|---|
 | `tokens/{id}/price` | 404 | Derived from market detail / order book |
 | `tokens/{id}/ticker` | 404 | Derived from market detail quotes |

@@ -55,7 +55,7 @@ export function WalletConnectModal({
   const handleTestSign = async () => {
     setSignStatus('Signing verification challenge in wallet...')
     const sig = await signMessage(
-      `Dolymarket Non-Custodial Verification
+      `AlgoXen Non-Custodial Verification
 Timestamp: ${new Date().toISOString()}
 Wallet: ${address}`
     )
@@ -197,7 +197,7 @@ Wallet: ${address}`
               <div className="space-y-2 rounded-xl border border-amber-500/20 bg-amber-950/20 p-3.5 text-xs text-amber-200">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
-                  <span>Wallet connected, but not signed in to Dolymarket.</span>
+                  <span>Wallet connected, but not signed in to AlgoXen.</span>
                 </div>
                 <button
                   type="button"

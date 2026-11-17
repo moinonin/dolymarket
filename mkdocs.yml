@@ -1,8 +1,10 @@
-site_name: DolyMarket
+site_name: AlgoXen
 site_description: Prediction market platform — CLOB, CTF settlement, real-time streaming.
-site_url: https://dolymarket.example.com
+site_url: https://algoxen.example.com
 theme:
   name: material
+  logo: assets/logo.png
+  favicon: assets/favicon.png
   palette:
     - scheme: slate
       primary: indigo

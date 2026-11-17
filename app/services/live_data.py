@@ -135,11 +135,15 @@ def normalize_market(raw: dict) -> dict:
     outcome_prices: list[Decimal | None] = []
     for index, outcome in enumerate(outcomes_raw):
         if isinstance(outcome, dict):
-            symbol = str(outcome.get("outcome") or f"Outcome {index + 1}")
+            symbol = (
+                _label(outcome.get("outcome"))
+                or _label(outcome)
+                or f"Outcome {index + 1}"
+            )
             token_id = str(outcome.get("token_id") or outcome.get("clob_token_id") or "")
             price = to_decimal(outcome.get("price"))
         else:
-            symbol = str(outcome)
+            symbol = _label(outcome) or f"Outcome {index + 1}"
             token_id = ""
             price = None
         outcomes.append(symbol)

@@ -1,6 +1,6 @@
 # Collateral, Web3 Wallet & On-Chain Transfers
 
-Dolymarket supports both **local simulation collateral** and **non-custodial on-chain USDC deposits/withdrawals** via the connected EVM wallet (`WalletContext.tsx`) and DexBuilder Broker API.
+AlgoXen supports both **local simulation collateral** and **non-custodial on-chain USDC deposits/withdrawals** via the connected EVM wallet (`WalletContext.tsx`) and DexBuilder Broker API.
 
 ---
 
