@@ -88,13 +88,13 @@ Impact: There are no per-key scopes, expiry, IP policy, audit trail, overlap rot
 
 Required follow-up: Introduce an ApiKey entity with opaque ID, per-key salted verifier, scopes, expiry, status, last-used data, allowed network policy, audit events, multiple concurrent keys, and a key-encryption/pepper rotation plan.
 
-### P1 — WebSocket protections still have insecure fallback and local scaling limits
+### P1 — WebSocket authentication fallback and cross-pod scale remain incomplete
 
-Evidence: app/api/v4/ws.py lines 100-150 still accepts token query parameter and an auth frame containing token. app/ws/manager.py remains an in-process connection list and serial broadcaster.
+Evidence: app/api/v4/ws.py lines 100-150 still accepts token query parameter and an auth frame containing token. app/ws/manager.py remains an in-process connection list, but it now enforces public/private connection caps and sends concurrently with a two-second per-socket timeout.
 
-Impact: Query-token leakage remains possible for callers using fallback. Public/private presence and broadcast do not scale across pods; a slow socket can still delay a local broadcast.
+Impact: Query-token leakage remains possible for callers using fallback. Public/private presence and broadcast do not scale across pods. The local slow-client issue is materially improved: a slow socket is evicted after its timeout and does not block healthy sockets sequentially.
 
-Required follow-up: Remove token-query/frame fallback after ticket migration, use gateway-managed authenticated sockets, bounded per-client queues, backpressure/slow-consumer eviction, broker-backed fan-out, and per-user/IP connection/message/subscription quotas.
+Required follow-up: Remove token-query/frame fallback after ticket migration, use gateway-managed authenticated sockets, broker-backed fan-out, shared quotas across instances, and bounded per-client queue/backpressure policy for bursts that exceed the send timeout model.
 
 ### P1 — Rate limit and token/session revocation are bounded but not distributed
 
@@ -152,11 +152,11 @@ Evidence: it has lease fencing and stale-feed/kill-switch tests, but its primary
 
 Follow-up: move pricing inputs to validated reference feeds, build portfolio/risk projections and stress limits, persist model versions/decisions, and require paper-trading/backtest acceptance before live execution.
 
-### P2 — Accessibility improvements from the prior audit remain unverified
+### P2 — Modal semantics are improved; shared focus management and automated checks remain
 
-Evidence: the frontend detector reports no implementation-integrity advisories and route splitting is now effective, but modal components still use overlay div patterns and access-token storage is unchanged. No automated accessibility dependency or test suite is present.
+Evidence: CashLedgerModal and DexBuilderTransferModal now provide dialog role, modal state, accessible labels, Escape handling, labelled inputs, and initial focus. The frontend detector reports no implementation-integrity advisories. There is still no shared focus-trap/focus-restore primitive or automated accessibility test suite.
 
-Follow-up: introduce a dialog primitive, add role/dialog semantics/focus trap/Escape/restore, label amount controls, test keyboard/screen reader and 320px touch target layout, then add automated Axe checks to CI.
+Follow-up: introduce a shared dialog primitive for focus trapping/restoration and background isolation, then test keyboard/screen-reader and 320px touch-target layouts. Add automated Axe checks to CI.
 
 ## Closed or materially improved recommendations
 
@@ -169,6 +169,8 @@ Follow-up: introduce a dialog primitive, add role/dialog semantics/focus trap/Es
 - Post-commit event handoff is improved through transactional outbox and callback.
 - Production startup avoids create_all and rejects SQLite unless explicitly overridden.
 - WS ticket and bounded pre-auth handshake are implemented.
+- WebSocket fan-out now sends concurrently with per-socket timeout/eviction and local connection caps.
+- Cash and DexBuilder transfer modals now have dialog semantics, labels, Escape handling, and initial focus.
 - Frontend route splitting is successful: current production entry is about 31.43 KB gzip; no frontend detector findings.
 
 ## Verification

@@ -15,6 +15,7 @@ import {
 import AuthProviders, { OAUTH_MESSAGE_TYPE } from './AuthProviders'
 import { useToast } from '../context/toast'
 import { useWallet } from '../context/WalletContext'
+import Dialog from '../components/Dialog'
 import { Wallet, Fingerprint, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface AuthUser {
@@ -246,20 +247,8 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="auth-modal-title"
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose()
-      }}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onClose={onClose} labelledBy="auth-modal-title">
+      <div>
         <h2 id="auth-modal-title" className="text-lg font-bold text-white">
           {mode === 'register' ? 'Join Dolymarket' : 'Welcome Back'}
         </h2>
@@ -340,6 +329,6 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </Dialog>
   )
 }

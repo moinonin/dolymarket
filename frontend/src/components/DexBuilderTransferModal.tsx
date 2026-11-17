@@ -3,6 +3,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Loader2, RefreshCw, Wallet, X } from 
 import { api } from '../api/client'
 import { useToast } from '../context/toast'
 import { useWallet } from '../context/WalletContext'
+import Dialog from './Dialog'
 
 export default function DexBuilderTransferModal({
   mode,
@@ -127,17 +128,8 @@ export default function DexBuilderTransferModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="dex-transfer-title"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl font-geist-mono"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onClose={onClose} labelledBy="dex-transfer-title">
+      <div className="font-geist-mono">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {mode === 'deposit' ? (
@@ -245,6 +237,6 @@ export default function DexBuilderTransferModal({
               : 'Sign & Withdraw USDC'}
         </button>
       </div>
-    </div>
+    </Dialog>
   )
 }

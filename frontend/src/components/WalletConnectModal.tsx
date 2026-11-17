@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useWallet } from '../context/WalletContext'
 import { useAuth } from '../auth/AuthProvider'
+import Dialog from './Dialog'
 
 export function WalletConnectModal({
   isOpen,
@@ -98,17 +99,8 @@ Wallet: ${address}`
   const explorerBase = chainId === 8453 ? 'https://basescan.org' : 'https://etherscan.io'
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="wallet-modal-title"
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onClose={onClose} labelledBy="wallet-modal-title" maxWidthClass="max-w-md">
+      <div className="relative overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-2.5">
@@ -382,6 +374,6 @@ Wallet: ${address}`
           </div>
         )}
       </div>
-    </div>
+    </Dialog>
   )
 }

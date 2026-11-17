@@ -3,6 +3,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Wallet } from 'lucide-react'
 import { api } from '../api/client'
 import { useToast } from '../context/toast'
 import { useWallet } from '../context/WalletContext'
+import Dialog from './Dialog'
 
 export default function CashLedgerModal({
   mode,
@@ -46,17 +47,8 @@ export default function CashLedgerModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cash-ledger-title"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl font-geist-mono"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Dialog onClose={onClose} labelledBy="cash-ledger-title">
+      <div className="font-geist-mono">
         <div className="mb-4 flex items-center gap-2">
           {mode === 'deposit' ? (
             <ArrowDownToLine className="h-5 w-5 text-emerald-400" />
@@ -132,6 +124,6 @@ export default function CashLedgerModal({
           {busy ? 'Processing…' : mode === 'deposit' ? 'Deposit' : 'Withdraw'}
         </button>
       </div>
-    </div>
+    </Dialog>
   )
 }
