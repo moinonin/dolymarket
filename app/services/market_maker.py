@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -45,6 +46,25 @@ def _quantize_tick(price: Decimal, tick: Decimal) -> Decimal:
     return max(MIN_PX, min(MAX_PX, q))
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_mm_force_dry_run() -> bool:
+    """Return True when MM_FORCE_DRY_RUN forces paper quoting globally."""
+    return _env_bool("MM_FORCE_DRY_RUN", False)
+
+
+def default_mm_dry_run() -> bool:
+    """Return default dry_run mode from MM_DRY_RUN env var (defaults to True)."""
+    if is_mm_force_dry_run():
+        return True
+    return _env_bool("MM_DRY_RUN", True)
+
+
 @dataclass
 class MMConfig:
     desk_id: str
@@ -67,7 +87,7 @@ class MMConfig:
     ewi_critical: float = 0.75
     ewi_resume: float = 0.55
     crypto_skew: bool = True
-    dry_run: bool = True
+    dry_run: bool = field(default_factory=default_mm_dry_run)
     interval_s: float = 2.0
 
 
@@ -296,7 +316,7 @@ class MMRuntimeState:
             "desk_id": self.cfg.desk_id,
             "market_id": self.cfg.market_id,
             "token_id": self.cfg.token_id,
-            "dry_run": self.cfg.dry_run,
+            "dry_run": self.cfg.dry_run or is_mm_force_dry_run(),
             "crypto_skew": self.cfg.crypto_skew,
             "max_usdc_exposure": str(self.cfg.max_usdc_exposure),
             "daily_loss_limit_usdc": str(self.cfg.daily_loss_limit_usdc),
@@ -397,6 +417,8 @@ class FearGreedMarketMakerManager:
                 await session.commit()
 
     async def start(self, cfg: MMConfig, *, persist: bool = True) -> dict[str, Any]:
+        if is_mm_force_dry_run():
+            cfg.dry_run = True
         await self.stop(cfg.desk_id, token_id=cfg.token_id, persist=False)
         if persist:
             await self._persist_config(cfg, enabled=True)
@@ -460,7 +482,7 @@ class FearGreedMarketMakerManager:
                 expiry_pull_minutes=int(getattr(row, "expiry_pull_minutes", 15)),
                 tick_size=Decimal(str(row.tick_size)),
                 crypto_skew=bool(row.crypto_skew),
-                dry_run=bool(row.dry_run),
+                dry_run=True if is_mm_force_dry_run() else bool(row.dry_run),
                 interval_s=float(row.interval_s),
             )
             await self.start(cfg, persist=False)
@@ -499,8 +521,6 @@ class FearGreedMarketMakerManager:
         state.resting_ask_px = None
 
     async def _step(self, state: MMRuntimeState) -> None:
-        import os
-
         if self.global_kill_switch or os.environ.get("MM_GLOBAL_KILL_SWITCH", "").strip() == "1":
             await self._cancel_resting(state)
             state.halted = True
@@ -599,7 +619,7 @@ class FearGreedMarketMakerManager:
                 state.last_decision = decision.to_dict()
                 state.last_error = None
 
-                if cfg.dry_run:
+                if cfg.dry_run or is_mm_force_dry_run():
                     return
 
                 if decision.action == "HALT":

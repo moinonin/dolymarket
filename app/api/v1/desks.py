@@ -27,7 +27,12 @@ from app.models.domain import (
     User,
 )
 from app.services import collateral, copy_engine, desk_track_record
-from app.services.market_maker import MMConfig, mm_manager
+from app.services.market_maker import (
+    MMConfig,
+    default_mm_dry_run,
+    is_mm_force_dry_run,
+    mm_manager,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["desks"])
 
@@ -544,7 +549,7 @@ class MMStartRequest(BaseModel):
     expiry_pull_minutes: int = Field(default=15, ge=0, le=1440)
     tick_size: Decimal = Field(default=Decimal("0.01"), gt=0, le=Decimal("0.10"))
     crypto_skew: bool = True
-    dry_run: bool = True
+    dry_run: bool | None = None
     interval_s: float = Field(default=2.0, ge=0.5, le=60.0)
 
 
@@ -568,6 +573,9 @@ async def start_desk_market_maker(
 ):
     _ensure_enabled()
     desk = await _require_desk_operator(desk_id, user, session)
+    resolved_dry_run = default_mm_dry_run() if body.dry_run is None else body.dry_run
+    if is_mm_force_dry_run():
+        resolved_dry_run = True
     cfg = MMConfig(
         desk_id=desk.id,
         market_id=body.market_id,
@@ -581,7 +589,7 @@ async def start_desk_market_maker(
         expiry_pull_minutes=body.expiry_pull_minutes,
         tick_size=body.tick_size,
         crypto_skew=body.crypto_skew,
-        dry_run=body.dry_run,
+        dry_run=resolved_dry_run,
         interval_s=body.interval_s,
     )
     return await mm_manager.start(cfg)

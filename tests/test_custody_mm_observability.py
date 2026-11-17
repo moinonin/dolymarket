@@ -72,3 +72,28 @@ async def test_mm_stale_feed_kill_switch_and_observability(client: AsyncClient):
     assert r_m.status_code == 200
     assert "dolymarket_requests_total" in r_m.text
     assert "dolymarket_mm_active_bots" in r_m.text
+
+
+async def test_mm_dry_run_env_defaults_and_force_override(monkeypatch):
+    from app.api.v1.desks import MMStartRequest
+    from app.services.market_maker import (
+        MMConfig,
+        default_mm_dry_run,
+        is_mm_force_dry_run,
+    )
+
+    monkeypatch.delenv("MM_DRY_RUN", raising=False)
+    monkeypatch.delenv("MM_FORCE_DRY_RUN", raising=False)
+    assert is_mm_force_dry_run() is False
+    assert default_mm_dry_run() is True
+    assert MMConfig("d", "m", "t", "u").dry_run is True
+    assert MMStartRequest(market_id="m", token_id="t").dry_run is None
+
+    monkeypatch.setenv("MM_DRY_RUN", "false")
+    assert default_mm_dry_run() is False
+    assert MMConfig("d", "m", "t", "u").dry_run is False
+
+    monkeypatch.setenv("MM_FORCE_DRY_RUN", "1")
+    assert is_mm_force_dry_run() is True
+    assert default_mm_dry_run() is True
+    assert MMConfig("d", "m", "t", "u").dry_run is True
