@@ -263,51 +263,63 @@ class MatchingEngine:
                 self.last_events = events
                 return order
 
-        # Match against in-memory resting liquidity (price-time priority).
+        # Match against in-memory resting liquidity (price-time priority),
+        # serialized per token_id to prevent concurrent overfill races.
         remaining = amount
         try:
-            for maker_record in relevant:
-                if remaining <= 0:
-                    break
-                maker = await session.get(Order, maker_record.id)
-                if maker is None or maker.status not in BOOK_STATUSES:
-                    book.remove_order(maker_record.id)
+            async with self.order_books.lock_for(token.token_id):
+                for maker_record in relevant:
+                    if remaining <= 0:
+                        break
+                    if maker_record.user_id == user_id:
+                        break
+                    maker = (
+                        await session.execute(
+                            select(Order)
+                            .where(Order.id == maker_record.id)
+                            .with_for_update()
+                        )
+                    ).scalar_one_or_none()
+                    if maker is None or maker.status not in BOOK_STATUSES:
+                        book.remove_order(maker_record.id)
+                        book_changed = True
+                        continue
+                    if maker.user_id == user_id:
+                        break
+                    fill_price = to_dec(maker.price)
+                    maker_remaining = to_dec(maker.amount) - to_dec(maker.filled_amount)
+                    qty = min(maker_remaining, remaining)
+                    if qty <= 0:
+                        book.remove_order(maker_record.id)
+                        book_changed = True
+                        continue
+                    fill = await self._execute_fill(
+                        session,
+                        market,
+                        token,
+                        maker,
+                        order,
+                        fill_price,
+                        qty,
+                        collateral_service,
+                        book,
+                    )
                     book_changed = True
-                    continue
-                fill_price = to_dec(maker.price)
-                maker_remaining = to_dec(maker.amount) - to_dec(maker.filled_amount)
-                qty = min(maker_remaining, remaining)
-                if qty <= 0:
-                    book.remove_order(maker_record.id)
-                    book_changed = True
-                    continue
-                fill = await self._execute_fill(
-                    session,
-                    market,
-                    token,
-                    maker,
-                    order,
-                    fill_price,
-                    qty,
-                    collateral_service,
-                    book,
-                )
-                book_changed = True
-                events.append(
-                    {
-                        "channel": "pred.trades",
-                        "market_id": market.id,
-                        "token_id": token.token_id,
-                        "price": float(fill_price),
-                        "shares": float(qty),
-                        "side": side,
-                        "sequence_id": fill["sequence_id"],
-                        "sequence": fill["sequence_id"],
-                        "timestamp": _now_ns(),
-                    }
-                )
-                events.extend(fill.pop("position_events", []))
-                remaining -= qty
+                    events.append(
+                        {
+                            "channel": "pred.trades",
+                            "market_id": market.id,
+                            "token_id": token.token_id,
+                            "price": float(fill_price),
+                            "shares": float(qty),
+                            "side": side,
+                            "sequence_id": fill["sequence_id"],
+                            "sequence": fill["sequence_id"],
+                            "timestamp": _now_ns(),
+                        }
+                    )
+                    events.extend(fill.pop("position_events", []))
+                    remaining -= qty
 
             order.filled_amount = amount - remaining
 
@@ -347,7 +359,14 @@ class MatchingEngine:
         )
         if book_changed:
             events.append(self._depth_event(book))
-        await self._emit(events)
+        if self.broadcaster is not None:
+            from app.db.session import queue_post_commit
+
+            if isinstance(getattr(session, "info", None), dict):
+                evs = list(events)
+                queue_post_commit(session, lambda: self._emit(evs))
+            else:
+                await self._emit(events)
         self.last_events = events
         return order
 
@@ -451,6 +470,8 @@ class MatchingEngine:
                 session, taker_account, fill_price * qty
             )
             notional = fill_price * qty
+            if to_dec(taker_account.balance) - notional < taker_fee:
+                raise OrderRejected("Insufficient funds for trading fee", http_status=400)
             taker_account.balance = to_dec(taker_account.balance) - notional
             maker_account.balance = to_dec(maker_account.balance) + notional
             collateral_service.charge_fee_sync(taker_account, taker_fee)

@@ -41,6 +41,7 @@ class _LibsqlAsyncSession:
 
     def __init__(self, sync_session: Session) -> None:
         self._s = sync_session
+        self.info: dict[str, Any] = {}
 
     def add(self, instance: Any) -> None:
         self._s.add(instance)
@@ -48,17 +49,29 @@ class _LibsqlAsyncSession:
     def add_all(self, instances: Any) -> None:
         self._s.add_all(instances)
 
+    async def _run_retry(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        for attempt in range(3):
+            try:
+                return await asyncio.to_thread(fn, *args, **kwargs)
+            except ValueError as exc:
+                msg = str(exc)
+                if attempt < 2 and ("Hrana:" in msg or "connection closed" in msg):
+                    await asyncio.to_thread(self._s.rollback)
+                    await asyncio.sleep(0.05 * (attempt + 1))
+                    continue
+                raise
+
     async def execute(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._s.execute, statement, params, **kwargs)
+        return await self._run_retry(self._s.execute, statement, params, **kwargs)
 
     async def scalar(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._s.scalar, statement, params, **kwargs)
+        return await self._run_retry(self._s.scalar, statement, params, **kwargs)
 
     async def scalars(self, statement: Any, params: Any = None, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._s.scalars, statement, params, **kwargs)
+        return await self._run_retry(self._s.scalars, statement, params, **kwargs)
 
     async def get(self, entity: Any, ident: Any, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(self._s.get, entity, ident, **kwargs)
+        return await self._run_retry(self._s.get, entity, ident, **kwargs)
 
     async def delete(self, instance: Any) -> None:
         await asyncio.to_thread(self._s.delete, instance)
@@ -113,14 +126,35 @@ else:
     )
 
 
+def queue_post_commit(session: Any, callback: Any) -> None:
+    """Register an async zero-arg callback to run only after session.commit() succeeds."""
+    info = getattr(session, "info", None)
+    if isinstance(info, dict):
+        info.setdefault("post_commit_callbacks", []).append(callback)
+
+
 async def get_async_session() -> AsyncIterator[AsyncSession | _LibsqlAsyncSession]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()
         except Exception:
+            if isinstance(getattr(session, "info", None), dict):
+                session.info.pop("post_commit_callbacks", None)
             await session.rollback()
             raise
+        callbacks = (
+            session.info.pop("post_commit_callbacks", [])
+            if isinstance(getattr(session, "info", None), dict)
+            else []
+        )
+        for cb in callbacks:
+            try:
+                await cb()
+            except Exception:
+                import logging
+
+                logging.getLogger("app.db").exception("post_commit callback failed")
 
 
 async def init_db() -> None:

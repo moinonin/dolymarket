@@ -1,4 +1,5 @@
 """Authentication endpoints: registration, login, and Web3 wallet sign-in."""
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
@@ -152,9 +153,11 @@ async def wallet_challenge(
     expires_at = now + timedelta(minutes=5)
     iso_now = now.isoformat()
 
-    if body.domain and body.uri and "\n" not in body.domain and "\n" not in body.uri:
-        domain = body.domain.strip()
-        uri = body.uri.strip().rstrip("/")
+    canonical_url = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
+    siwe_domain = os.environ.get("SIWE_DOMAIN", "").strip()
+    if canonical_url and siwe_domain:
+        domain = siwe_domain
+        uri = canonical_url
     else:
         origin = (request.headers.get("origin") or "").strip().rstrip("/")
         if origin:
@@ -245,8 +248,14 @@ async def wallet_verify(
     if recovered.lower() != norm_address:
         raise HTTPException(status_code=400, detail="Signature does not match wallet address")
 
-    # Consume challenge so it cannot be replayed
-    await session.delete(challenge_record)
+    # Atomically consume challenge so concurrent verify calls cannot replay the nonce
+    from sqlalchemy import delete
+
+    consumed = await session.execute(
+        delete(WalletChallenge).where(WalletChallenge.id == challenge_record.id)
+    )
+    if (consumed.rowcount or 0) != 1:
+        raise HTTPException(status_code=400, detail="Wallet challenge already consumed")
 
     # 3. Lookup or auto-provision user
     user_res = await session.execute(

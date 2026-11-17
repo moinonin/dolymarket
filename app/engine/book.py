@@ -199,6 +199,14 @@ class OrderBookRegistry:
 
     def __init__(self) -> None:
         self._books: dict[str, InMemoryOrderBook] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def lock_for(self, token_id: str) -> asyncio.Lock:
+        lock = self._locks.get(token_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[token_id] = lock
+        return lock
 
     def get_existing(self, token_id: str) -> InMemoryOrderBook | None:
         return self._books.get(token_id)
@@ -219,6 +227,7 @@ class OrderBookRegistry:
 
     def reset(self) -> None:
         self._books.clear()
+        self._locks.clear()
 
 
 order_books = OrderBookRegistry()

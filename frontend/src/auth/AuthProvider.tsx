@@ -244,13 +244,19 @@ export function AuthModal({ mode, onClose, onAuthed }: AuthModalProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
       onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose()
+      }}
     >
       <div
         className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold text-white">
+        <h2 id="auth-modal-title" className="text-lg font-bold text-white">
           {mode === 'register' ? 'Join Dolymarket' : 'Welcome Back'}
         </h2>
         <p className="mt-1 text-xs text-slate-400">

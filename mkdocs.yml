@@ -45,7 +45,8 @@ nav:
     - Settled positions: portfolio/settled.md
     - Collateral: portfolio/collateral.md
   - Resolution: resolution.md
-  - Pro Desks: pro-desks.md
+  - Pro Desks & Market Maker: pro-desks.md
+  - AGX Staking: agx-staking.md
   - Operations console: admin-console.md
   - Authentication: auth.md
   - Do's and don'ts: do-dont.md

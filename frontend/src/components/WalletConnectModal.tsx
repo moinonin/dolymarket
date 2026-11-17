@@ -100,6 +100,9 @@ Wallet: ${address}`
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="wallet-modal-title"
       onClick={onClose}
     >
       <div
@@ -113,7 +116,7 @@ Wallet: ${address}`
               <Wallet className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">
+              <h3 id="wallet-modal-title" className="text-sm font-bold text-white">
                 {isConnected ? 'Connected Web3 Wallet' : 'Connect Crypto Wallet'}
               </h3>
               <p className="text-[11px] text-slate-400">
@@ -122,6 +125,8 @@ Wallet: ${address}`
             </div>
           </div>
           <button
+            type="button"
+            aria-label="Close"
             onClick={onClose}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
           >

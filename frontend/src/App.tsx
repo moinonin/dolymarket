@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { Suspense, lazy, useEffect, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -23,22 +23,22 @@ import { WalletProvider } from './context/WalletContext'
 import { WalletButton } from './components/WalletButton'
 import { setToastHandler } from './api/client'
 import { useToast } from './context/toast'
-import HomePage from './pages/HomePage'
-import MarketsPage from './pages/MarketsPage'
-import EventDetailPage from './pages/EventDetailPage'
-import PortfolioPage from './pages/PortfolioPage'
-import ResolutionPage from './pages/ResolutionPage'
-import DesksPage from './pages/DesksPage'
-import AdminPage from './pages/AdminPage'
-import CopyActivityPage from './pages/CopyActivityPage'
-import DeskDetailPage from './pages/DeskDetailPage'
-import TagsPage from './pages/TagsPage'
-import UserTradesPage from './pages/UserTradesPage'
-import SettledPositionsPage from './pages/SettledPositionsPage'
-import MarketDetailPage from './pages/MarketDetailPage'
-import LiveMarketsPage from './pages/LiveMarketsPage'
-import LiveMarketDetailPage from './pages/LiveMarketDetailPage'
-import AgxStakingPage from './pages/AgxStakingPage'
+const HomePage = lazy(() => import('./pages/HomePage'))
+const MarketsPage = lazy(() => import('./pages/MarketsPage'))
+const EventDetailPage = lazy(() => import('./pages/EventDetailPage'))
+const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
+const ResolutionPage = lazy(() => import('./pages/ResolutionPage'))
+const DesksPage = lazy(() => import('./pages/DesksPage'))
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+const CopyActivityPage = lazy(() => import('./pages/CopyActivityPage'))
+const DeskDetailPage = lazy(() => import('./pages/DeskDetailPage'))
+const TagsPage = lazy(() => import('./pages/TagsPage'))
+const UserTradesPage = lazy(() => import('./pages/UserTradesPage'))
+const SettledPositionsPage = lazy(() => import('./pages/SettledPositionsPage'))
+const MarketDetailPage = lazy(() => import('./pages/MarketDetailPage'))
+const LiveMarketsPage = lazy(() => import('./pages/LiveMarketsPage'))
+const LiveMarketDetailPage = lazy(() => import('./pages/LiveMarketDetailPage'))
+const AgxStakingPage = lazy(() => import('./pages/AgxStakingPage'))
 import { Footer } from './components/Footer'
 
 // Tiny hash router — path segments after '#'.
@@ -142,7 +142,15 @@ function Shell() {
         onAuth={openAuth}
         onLogout={logout}
       />
-      {page}
+      <Suspense
+        fallback={
+          <div className="mx-auto max-w-6xl px-6 py-16 text-center text-xs text-slate-500">
+            Loading view…
+          </div>
+        }
+      >
+        {page}
+      </Suspense>
       <Footer onNavigate={navigate} />
     </div>
   )

@@ -31,9 +31,14 @@ _HMAC_ERROR = HTTPException(
 )
 
 
+_HMAC_REPLAY_CACHE: dict[str, float] = {}
+
+
 async def _user_from_api_key(
     request: Request, session: AsyncSession, api_key: str
 ) -> User:
+    import time
+
     timestamp = request.headers.get("X-TIMESTAMP", "")
     signature = request.headers.get("X-SIGNATURE", "")
     if not timestamp or not signature or not security.timestamp_fresh(timestamp):
@@ -51,6 +56,21 @@ async def _user_from_api_key(
         raise _HMAC_ERROR
 
     digest = security.api_key_digest(api_key)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        now_m = time.monotonic()
+        replay_key = f"{digest}:{timestamp}:{signature}"
+        exp = _HMAC_REPLAY_CACHE.get(replay_key)
+        if exp is not None and exp > now_m:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Replayed HMAC mutation rejected",
+            )
+        if len(_HMAC_REPLAY_CACHE) >= 10000:
+            expired = [k for k, v in _HMAC_REPLAY_CACHE.items() if v <= now_m]
+            for k in expired:
+                _HMAC_REPLAY_CACHE.pop(k, None)
+        _HMAC_REPLAY_CACHE[replay_key] = now_m + security.HMAC_TOLERANCE_SECONDS
+
     user = (
         await session.execute(select(User).where(User.api_key == digest))
     ).scalar_one_or_none()

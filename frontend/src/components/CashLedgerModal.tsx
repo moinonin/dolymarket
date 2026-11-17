@@ -23,6 +23,14 @@ export default function CashLedgerModal({
   const valid = !Number.isNaN(amt) && amt > 0
   const overdraw = mode === 'withdraw' && valid && amt > available
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   async function submit() {
     setBusy(true)
     try {
@@ -38,7 +46,13 @@ export default function CashLedgerModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cash-ledger-title"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl font-geist-mono"
         onClick={(e) => e.stopPropagation()}
@@ -49,7 +63,7 @@ export default function CashLedgerModal({
           ) : (
             <ArrowUpFromLine className="h-5 w-5 text-rose-400" />
           )}
-          <h2 className="text-lg font-semibold text-white">
+          <h2 id="cash-ledger-title" className="text-lg font-semibold text-white">
             {mode === 'deposit' ? 'Deposit USDC' : 'Withdraw USDC'}
           </h2>
         </div>
@@ -93,12 +107,17 @@ export default function CashLedgerModal({
             ? `Available to withdraw: $${available.toFixed(2)} (unlocked only)`
             : 'Add demo funds in USDC — this is a simulation, no real money moves.'}
         </p>
+        <label htmlFor="cash-ledger-amount" className="mt-4 block text-[11px] uppercase tracking-wide text-slate-400">
+          Amount (USDC)
+        </label>
         <input
+          id="cash-ledger-amount"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="100.00"
           inputMode="decimal"
-          className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm outline-none focus:border-emerald-500"
+          autoFocus
+          className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm outline-none focus:border-emerald-500"
         />
         {overdraw && (
           <p className="mt-2 text-xs text-amber-300">⚠ Exceeds available unlocked balance.</p>

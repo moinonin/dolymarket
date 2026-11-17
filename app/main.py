@@ -62,6 +62,8 @@ AUTH_ATTACK_PATHS = (
     "/api/v1/auth/login",
     "/api/v1/auth/register",
     "/api/v1/auth/oauth/exchange",
+    "/api/v1/auth/wallet/challenge",
+    "/api/v1/auth/wallet/verify",
     "/api/v1/auth/passkey/login/verify",
     "/api/v1/auth/passkey/register/options",
     "/api/v1/auth/passkey/register/verify",
@@ -142,7 +144,14 @@ async def lifespan(app: FastAPI):
     import asyncio
     import contextlib
 
-    await init_db()
+    is_prod = os.environ.get("APP_ENV", "").strip().lower() == "production"
+    if is_prod:
+        from app.db.session import DATABASE_URL
+
+        if DATABASE_URL.startswith("sqlite") and os.environ.get("ALLOW_SQLITE_PROD", "").strip() != "1":
+            raise RuntimeError("Production requires explicit non-SQLite DATABASE_URL")
+    else:
+        await init_db()
     from app.db.seed import seed
     from app.services import agx as agx_service
     from app.services.market_maker import mm_manager
@@ -163,7 +172,9 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                pass
+                import logging
+
+                logging.getLogger("app.main").exception("agx epoch rollover failed")
 
     rollover_task = asyncio.create_task(_epoch_rollover_loop())
     try:

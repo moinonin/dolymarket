@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, RefreshCw, Wallet, X } from 'lucide-react'
 import { api } from '../api/client'
 import { useToast } from '../context/toast'
@@ -37,6 +37,14 @@ export default function DexBuilderTransferModal({
   const valid = !Number.isNaN(amt) && amt > 0
   const onChainNum = usdcBalance !== null ? parseFloat(usdcBalance) : null
   const exceedsWallet = mode === 'deposit' && valid && onChainNum !== null && amt > onChainNum
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   async function handleSubmit() {
     if (!valid || !isConnected || !address) return
@@ -121,6 +129,9 @@ export default function DexBuilderTransferModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="dex-transfer-title"
       onClick={onClose}
     >
       <div
@@ -134,12 +145,13 @@ export default function DexBuilderTransferModal({
             ) : (
               <ArrowUpFromLine className="h-5 w-5 text-rose-400" />
             )}
-            <h2 className="text-base font-semibold text-white">
+            <h2 id="dex-transfer-title" className="text-base font-semibold text-white">
               {mode === 'deposit' ? 'On-Chain USDC Deposit' : 'On-Chain USDC Withdraw'}
             </h2>
           </div>
           <button
             type="button"
+            aria-label="Close"
             onClick={onClose}
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
           >
@@ -185,14 +197,16 @@ export default function DexBuilderTransferModal({
           )}
         </div>
 
-        <label className="block text-[11px] uppercase tracking-wide text-slate-400">
+        <label htmlFor="dex-transfer-amount" className="block text-[11px] uppercase tracking-wide text-slate-400">
           Amount (USDC)
         </label>
         <input
+          id="dex-transfer-amount"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="25.00"
           inputMode="decimal"
+          autoFocus
           className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-white outline-none focus:border-emerald-500"
         />
 

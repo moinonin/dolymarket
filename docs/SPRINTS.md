@@ -151,3 +151,33 @@
 
 ### 6.5 Non-Custodial Withdrawal Transparency
 - [x] **On-Chain Tx Links & Status**: Surfaced Basescan/Etherscan/Arbiscan/Optimism/Polygonscan explorer links, `nonce`, and status pills on deposits & withdrawals in `DexBuilderBrokerPanel.tsx`.
+
+---
+
+## Audit Hardening (Batches 1–3 from `GPT_AUDIT.md`)
+- [x] **Batch 1 — CLOB & Auth Safety**: Per-token `asyncio.Lock` + maker `with_for_update()`, multi-level STP loop guard, non-truncating fee check, wallet auth routes added to `AUTH_ATTACK_PATHS`, rollover exception logging, and HMAC mutation replay cache.
+- [x] **Batch 2 — Post-Commit WS, Prod DB & SIWE**: Post-commit WS broadcast queue (`queue_post_commit`), fail-fast `APP_ENV=production` SQLite/auto-DDL guard, canonical SIWE domain/URI, and atomic `DELETE` challenge consumption.
+- [x] **Batch 3 — Frontend Perf & Accessibility**: `React.lazy` + `Suspense` route splitting (`index.js` `467 kB -> 110.9 kB`), `role="dialog"` / `aria-modal` / `Escape` / labeled inputs across all modals.
+
+---
+
+## Sprint 7 — Production Scale, Distributed Matching & Hardening
+
+### 7.1 Authoritative Distributed Matching & Transactional Outbox
+- [ ] **Partitioned Matching Leader & Durable Sequences**: Route each `token_id` to an authoritative matching partition with persisted per-partition sequences and deterministic restart/replay recovery.
+- [ ] **Transactional Outbox & Broker Fan-Out**: Persist committed order/fill/depth events to an outbox table in the same DB transaction and relay to Redis Streams / Kafka for multi-pod WebSocket fan-out.
+- [ ] **Postgres Concurrency & Deadlock Suite**: Add multi-task PostgreSQL stress tests for overfill, oversell, cancel-vs-fill, and deterministic account/position lock ordering.
+
+### 7.2 Auth, Session & WebSocket Hardening
+- [ ] **Short-Lived Access + HttpOnly Refresh Cookies**: Move browser sessions from 24h `localStorage` bearer tokens to short-lived in-memory access tokens + rotating/revocable `HttpOnly`/`Secure`/`SameSite` refresh cookies with CSRF protection.
+- [ ] **Single-Use WebSocket Tickets & Backpressure**: Replace query-param JWTs on `/ws` with single-use short-lived tickets; enforce handshake timeout, bounded outbound queues, and slow-client eviction.
+- [ ] **Scoped API Keys & Distributed Rate Limits**: Separate `api_keys` table (scopes, expiry, allowed IPs, rotation/revocation) and Redis-backed atomic rate limits with TTLs.
+
+### 7.3 Real-Money Custody, Market-Maker Leases & Observability
+- [ ] **Verified Custody & Double-Entry Reconciliation**: Replace demo collateral ledger in live mode with on-chain/provider receipt verification, finality checks, and immutable double-entry reconciliation.
+- [ ] **Durable MM Fencing Leases & Portfolio Risk Service**: Move `mm_manager` ownership to distributed leases with kill switch, external reference-price freshness/divergence guards, and persisted decision/action audit logs.
+- [ ] **Structured Telemetry & Keyset Pagination**: Add correlation-ID structured logs, OpenTelemetry/Prometheus metrics (order latency, queue lag, pool/WS health), and cursor/keyset pagination on public lists.
+
+### 7.4 Frontend Contract & Design System Polish
+- [ ] **Decimal-Safe Wire Contracts & Query Cache**: Migrate remaining `float` money payloads (`/collateral`, `clob.py`) to canonical decimal strings and adopt visibility-aware query caching.
+- [ ] **Semantic Design Tokens & Touch/Motion Audit**: Replace hard-coded color classes with semantic theme tokens, refine `prefers-reduced-motion`, and verify WCAG 2.5.8 touch targets at 320px–375px.

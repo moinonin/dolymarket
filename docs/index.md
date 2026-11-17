@@ -1,33 +1,48 @@
-# Dolymarket
+# Dolymarket UI & Platform Guide
 
-Dolymarket is a prediction market platform: an off-chain central limit order book
-(CLOB), conditional-token (CTF) settlement, and real-time streaming, exposed as a
-full-stack web app and a typed REST/WebSocket API.
+Dolymarket is a hybrid prediction market platform combining an **off-chain Central Limit Order Book (CLOB)**, an **overflow-safe LMSR Automated Market Maker (AMM)**, **Conditional Tokens Framework (CTF)** settlement, **Pro Desk copy trading & Fear/Greed market making**, and **non-custodial Web3 wallet signing**.
 
-## What you can do here
+---
 
-- **Trade outcome shares** on live events (politics, crypto, sports, macro).
-- **Provide liquidity** by posting limit orders on either side of the book.
-- **Follow a Pro Desk** and mirror its fills proportionally into your own account.
-- **Propose or dispute** market resolutions through an optimistic oracle.
+## Navigation & Hash Routes
 
-## 60-second quickstart
+All views are served from the React SPA (`frontend/src/App.tsx`) using hash-based routes:
 
-1. Open the app and create an account (email + password, passkey, or Google /
-   Microsoft / Apple).
-2. Deposit USDC into your collateral account.
-3. Open a market, pick an outcome, and place a **limit buy** at a price you
-   think is below the true probability.
-4. Watch the probability move as the book updates in real time.
-5. When the market resolves, redeem winning shares at **$1.00 each**.
+| Nav / Route | Page Component | Purpose |
+|---|---|---|
+| `#home` | `HomePage` / `LiveMarketsPage` | Public landing with live Fear & Greed gauge (`HeroVisual`); redirects signed-in users to `#live`. |
+| `#markets` | `MarketsPage` | Local Official & Community markets (`Community` / `Unfunded` badges) and community market creation. |
+| `#live` | `LiveMarketsPage` | Live DexBuilder prediction markets feed with WebSocket streaming + REST fallback. |
+| `#event/<slug>` | `EventDetailPage` | Event markets, `OrderBookLadder`, `RecentTrades`, price chart, and `TradeTicket`. |
+| `#market/<id>` | `MarketDetailPage` | Single-market detail with `Oracle Clarity` badge and microstructure telemetry (`Spread`, `$100` impact, `EWI`). |
+| `#live/market/<id>` | `LiveMarketDetailPage` | Live DexBuilder market order book, candlesticks, trade tape, and `LiveTradeTicket`. |
+| `#portfolio` | `PortfolioPage` | Summary cards, `Positions`, `Settled`, `Orders`, `Trades`, `Ledger`, `Broker Account`, and `Security`. |
+| `#desks` / `#desks/<id>` | `DesksPage` / `DeskDetailPage` | Pro Desk leaderboard, track-record equity curves, copy-follow controls, and `DeskMarketMakerPanel`. |
+| `#copy` | `CopyActivityPage` | Real-time copy-trading job audit trail and per-market risk cap status. |
+| `#agx` | `AgxStakingPage` | AGX staking tiers, fee discounts, 24h reward epochs, unstake cooldowns, and dispute staking. |
+| `#resolution` | `ResolutionPage` | Optimistic oracle queue, deterministic feed evidence proofs, and counter-bond disputes. |
+| `#tags` / `#trades` / `#settled` | `TagsPage` / `UserTradesPage` / `SettledPositionsPage` | Tag explorer, personal fill history, and redeemed settlements. |
+| `#admin` | `AdminPage` | Admin-only console for event/market lifecycle, desk approvals, and copy-job audits. |
+
+---
+
+## Quickstart Flow
+
+1. **Authenticate** via Email + Password, Passkey (WebAuthn), or **Sign In with Ethereum (SIWE)** from the `WalletButton` (`#home` / navbar).
+2. **Fund Collateral**:
+   - **Simulation mode**: Use `Deposit` on `#portfolio` (`CashLedgerModal` -> `POST /api/v1/collateral/deposit`, gated by `ENABLE_DEMO_COLLATERAL`).
+   - **On-chain DexBuilder mode**: Connect an EVM wallet (`WalletContext`) and use **Deposit USDC** / **Withdraw USDC** in `#portfolio` -> **Broker Account** (`DexBuilderTransferModal`).
+3. **Trade** on `#event/<slug>` using **Market**, **Limit**, or **Smart Route** (atomic CLOB + LMSR AMM execution).
+4. **Manage & Exit** from `#portfolio` with **TP +20%**, **Reverse** (one-tap YES/NO flip), or **Close**, then redeem winning shares at **$1.00 USDC** after resolution.
+
+---
 
 ## Where to go next
 
-- [Quickstart](getting-started/quickstart.md) — place your first order in 5 minutes.
-- [Concepts](getting-started/concepts.md) — markets, outcome tokens, prices.
-- [Do's and don'ts](do-dont.md) — trading hygiene.
-- [Disclaimers](disclaimers.md) — read before you trade.
-
-!!! warning "Simulation environment"
-    Dolymarket is a simulation environment for education and research. It is not
-    financial advice and not a regulated exchange. See [Disclaimers](disclaimers.md).
+- [Place an order](trading/place-order.md) — `Market`, `Limit`, `Smart Route`, Toxicity Shield, and TIF controls.
+- [Market details](markets/market-details.md) — `Oracle Clarity` score, spread/slippage telemetry, and Community markets.
+- [Positions](portfolio/positions.md) — `Cost Basis`, `TP +20%`, `Reverse`, and Portfolio tabs.
+- [Collateral & Wallet](portfolio/collateral.md) — On-chain USDC `balanceOf`, EIP-712 signing, and DexBuilder Broker Account.
+- [AGX Staking](agx-staking.md) — Tiers, fee discounts, and automated 24h reward epochs.
+- [Pro Desks & Market Maker](pro-desks.md) — Copy trading and the multi-market GRG Fear & Greed Market Maker.
+- [Resolution](resolution.md) — Optimistic oracle, deterministic feeds, and evidence proofs.
