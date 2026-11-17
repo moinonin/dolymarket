@@ -17,6 +17,7 @@ Business invariants preserved from the original engine:
 """
 from __future__ import annotations
 
+import os
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -116,6 +117,9 @@ def _now_ns() -> int:
     return time.time_ns() // 1_000_000
 
 
+_DEFAULT_LEADER_ID = os.environ.get("INSTANCE_ID", "").strip() or f"engine-{uuid.uuid4().hex[:8]}"
+
+
 class MatchingEngine:
     """Matches aggressive orders against the in-memory book."""
 
@@ -124,6 +128,7 @@ class MatchingEngine:
         broadcaster=None,
         registry: OrderBookRegistry | None = None,
         fill_queue: FillWriteQueue | None = None,
+        leader_id: str | None = None,
     ):
         # broadcaster: async callable(events: list[dict]) for WebSocket streaming
         self.broadcaster = broadcaster
@@ -132,6 +137,7 @@ class MatchingEngine:
         # Per-engine queue: a request can only flush fills it wrote itself,
         # which keeps concurrent submissions transactionally isolated.
         self.fill_queue = fill_queue if fill_queue is not None else FillWriteQueue()
+        self.leader_id = leader_id or _DEFAULT_LEADER_ID
 
     async def _emit(self, events: list[dict]) -> None:
         if self.broadcaster is None:
@@ -156,6 +162,15 @@ class MatchingEngine:
         desk_id: str | None = None,
         copy_source_fill_id: str | None = None,
     ) -> Order:
+        from app.services import outbox
+
+        if not await outbox.claim_partition_lease(
+            session, token.token_id, self.leader_id, ttl_seconds=30
+        ):
+            self.order_books.invalidate(token.token_id)
+            raise OrderRejected(
+                "Partition leader lease held by another instance", http_status=503
+            )
         book = await self.order_books.get(session, token.token_id)
         tick = to_dec(market.tick_size)
 
@@ -229,9 +244,25 @@ class MatchingEngine:
             self.last_events = events
             return order
 
-        # Collateral / share locking.
+        # Collateral / share locking (including upfront worst-case fee check on BUY).
         if side == "BUY":
             cost = price * amount
+            ev_cat = None
+            ev_row = (
+                await session.execute(select(Event).where(Event.id == market.event_id))
+            ).scalar_one_or_none()
+            if ev_row is not None:
+                ev_cat = ev_row.category
+            worst_fee = compute_fee(amount, fee_rate_for_category(ev_cat), price)
+            acct = await collateral_service.get_or_create_account(
+                session, user_id, for_update=True
+            )
+            avail = to_dec(acct.balance) - to_dec(acct.locked_balance)
+            if avail < cost + worst_fee:
+                raise OrderRejected(
+                    "Insufficient available balance (including worst-case fee)",
+                    http_status=400,
+                )
             await collateral_service.lock_for_buy(session, user_id, cost)
         else:
             position = await self._get_position(
@@ -321,22 +352,45 @@ class MatchingEngine:
                     events.extend(fill.pop("position_events", []))
                     remaining -= qty
 
-            order.filled_amount = amount - remaining
+                order.filled_amount = amount - remaining
 
-            if remaining > 0:
-                if time_in_force == "GTC" and order_type == "LIMIT":
-                    order.status = (
-                        "PARTIALLY_FILLED" if order.filled_amount > 0 else "OPEN"
+                if remaining > 0:
+                    if time_in_force == "GTC" and order_type == "LIMIT":
+                        order.status = (
+                            "PARTIALLY_FILLED" if order.filled_amount > 0 else "OPEN"
+                        )
+                        book.add_order(order)
+                        book_changed = True
+                    else:  # IOC remainder (FOK remainder handled above)
+                        order.status = "CANCELLED"
+                        await self._release_all(session, order, collateral_service)
+                else:
+                    order.status = "FILLED"
+
+                await self.fill_queue.flush(session)
+
+                events.append(
+                    {
+                        "channel": "pred.orders",
+                        "user_id": user_id,
+                        "order_id": order.id,
+                        "status": order.status,
+                        "filled_amount": float(order.filled_amount),
+                        "remaining_amount": float(remaining),
+                        "sequence_id": order_sequence,
+                        "sequence": order_sequence,
+                    }
+                )
+                if book_changed:
+                    events.append(self._depth_event(book))
+
+                if events:
+                    seqs = await outbox.allocate_partition_sequences(
+                        session, token.token_id, count=len(events)
                     )
-                    book.add_order(order)
-                    book_changed = True
-                else:  # IOC remainder (FOK remainder handled above)
-                    order.status = "CANCELLED"
-                    await self._release_all(session, order, collateral_service)
-            else:
-                order.status = "FILLED"
-
-            await self.fill_queue.flush(session)
+                    for ev, p_seq in zip(events, seqs):
+                        ev["partition_seq"] = p_seq
+                    await outbox.enqueue_outbox_events(session, token.token_id, events)
         except Exception:
             # A failed submission must not leak buffered fills into the next
             # request, and the in-memory book must not keep liquidity that the
@@ -344,31 +398,6 @@ class MatchingEngine:
             self.fill_queue.discard()
             self.order_books.invalidate(token.token_id)
             raise
-
-        events.append(
-            {
-                "channel": "pred.orders",
-                "user_id": user_id,
-                "order_id": order.id,
-                "status": order.status,
-                "filled_amount": float(order.filled_amount),
-                "remaining_amount": float(remaining),
-                "sequence_id": order_sequence,
-                "sequence": order_sequence,
-            }
-        )
-        if book_changed:
-            events.append(self._depth_event(book))
-
-        from app.services import outbox
-
-        if events:
-            seqs = await outbox.allocate_partition_sequences(
-                session, token.token_id, count=len(events)
-            )
-            for ev, p_seq in zip(events, seqs):
-                ev["partition_seq"] = p_seq
-            await outbox.enqueue_outbox_events(session, token.token_id, events)
 
         if self.broadcaster is not None:
             from app.db.session import AsyncSessionLocal, queue_post_commit

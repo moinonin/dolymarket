@@ -141,3 +141,53 @@ async def test_partition_leader_fencing_and_concurrent_matching_no_overfill(clie
     assert r1.status_code == 201 and r2.status_code == 201
     total_filled = r1.json()["order"]["filled_amount"] + r2.json()["order"]["filled_amount"]
     assert total_filled == 5.0
+
+
+async def test_two_independent_engine_registries_enforce_partition_leader_lease(client: AsyncClient):
+    from decimal import Decimal
+    from app.engine.book import OrderBookRegistry
+    from app.engine.clob import MatchingEngine, OrderRejected
+    from app.models.domain import Market, OutcomeToken, User
+    from app.services import collateral
+
+    ah = await auth_headers(client, "two_pod_adm@example.com")
+    await make_admin("two_pod_adm@example.com")
+    await client.post("/api/v1/collateral/deposit", json={"amount": 200}, headers=ah)
+
+    mk = (
+        await client.post(
+            "/api/v4/prediction/community/markets",
+            json={
+                "title": "Two Pod Lease Market",
+                "question": "Single leader?",
+                "category": "Crypto",
+                "outcomes": ["YES", "NO"],
+                "resolution_criteria": "Resolves YES per test.",
+                "initial_liquidity_usdc": 50,
+            },
+            headers=ah,
+        )
+    ).json()
+    mid, yes_tok = mk["market_id"], mk["tokens"][0]["token_id"]
+
+    reg_a = OrderBookRegistry()
+    reg_b = OrderBookRegistry()
+    eng_a = MatchingEngine(registry=reg_a, leader_id="pod-alpha")
+    eng_b = MatchingEngine(registry=reg_b, leader_id="pod-beta")
+
+    async with AsyncSessionLocal() as s:
+        u = (await s.execute(select(User).where(User.email == "two_pod_adm@example.com"))).scalar_one()
+        m = (await s.execute(select(Market).where(Market.id == mid))).scalar_one()
+        t = (await s.execute(select(OutcomeToken).where(OutcomeToken.token_id == yes_tok))).scalar_one()
+
+        o1 = await eng_a.submit_order(
+            s, u.id, m, t, collateral, side="BUY", price=Decimal("0.40"), amount=Decimal("5")
+        )
+        assert o1.status == "OPEN"
+        await s.commit()
+
+        with pytest.raises(OrderRejected) as exc_info:
+            await eng_b.submit_order(
+                s, u.id, m, t, collateral, side="BUY", price=Decimal("0.41"), amount=Decimal("5")
+            )
+        assert exc_info.value.http_status == 503

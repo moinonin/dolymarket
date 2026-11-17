@@ -299,6 +299,7 @@ async def wallet_challenge(
 @router.post("/wallet/verify", response_model=TokenResponse)
 async def wallet_verify(
     body: WalletVerifyRequest,
+    response: Response,
     session: AsyncSession = Depends(get_async_session),
 ):
     norm_address = body.address.strip().lower()
@@ -367,6 +368,7 @@ async def wallet_verify(
             await collateral.get_or_create_account(session, user.id)
 
     token = security.create_access_token(user.id, user.email)
+    _set_refresh_cookie(response, user)
     return TokenResponse(
         access_token=token,
         token_type="bearer",

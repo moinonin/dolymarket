@@ -97,23 +97,27 @@ async def enqueue_outbox_events(
 async def relay_pending_outbox(
     session: AsyncSession, broadcaster: Any, limit: int = 100
 ) -> int:
-    """Relay unpublished committed outbox events to ``broadcaster`` and mark published."""
+    """Claim and relay unpublished outbox events safely across concurrent relayers."""
     rows = (
         await session.execute(
             select(OutboxEvent)
             .where(OutboxEvent.published.is_(False))
             .order_by(OutboxEvent.created_at.asc(), OutboxEvent.partition_seq.asc())
+            .with_for_update(skip_locked=True)
             .limit(limit)
         )
     ).scalars().all()
     if not rows:
         return 0
-    payloads = [dict(r.payload_json) for r in rows]
-    if broadcaster is not None:
-        await broadcaster(payloads)
     now = _now()
+    payloads = []
     for r in rows:
         r.published = True
         r.published_at = now
+        payload = dict(r.payload_json)
+        payload.setdefault("event_id", r.id)
+        payloads.append(payload)
     await session.flush()
+    if broadcaster is not None:
+        await broadcaster(payloads)
     return len(rows)

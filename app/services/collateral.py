@@ -3,6 +3,7 @@ from decimal import ROUND_DOWN, Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import CollateralAccount, CollateralLedgerEntry, User
@@ -142,7 +143,13 @@ async def verified_deposit(
         raise HTTPException(status_code=409, detail="On-chain deposit receipt already credited")
     account = await get_or_create_account(session, user.id, for_update=True)
     account.balance = q4(Decimal(str(account.balance)) + amt)
-    await _ledger(session, account, "DEPOSIT", amt, reference=ref)
+    try:
+        await _ledger(session, account, "DEPOSIT", amt, reference=ref)
+        await session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409, detail="On-chain deposit receipt already credited"
+        ) from exc
     return account
 
 

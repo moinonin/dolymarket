@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from decimal import Decimal
 from sqlalchemy.orm import declarative_base, relationship
@@ -82,6 +83,15 @@ class CollateralLedgerEntry(Base):
     """Ledger trail for deposits, withdrawals, locks, releases, fees and payouts."""
 
     __tablename__ = "collateral_ledger"
+    __table_args__ = (
+        Index(
+            "ix_collateral_ledger_unique_onchain_ref",
+            "reference",
+            unique=True,
+            sqlite_where=text("reference LIKE 'onchain:%'"),
+            postgresql_where=text("reference LIKE 'onchain:%'"),
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     account_id = Column(
@@ -646,6 +656,9 @@ class OutboxEvent(Base):
     """Transactional outbox for committed engine/order/depth events."""
 
     __tablename__ = "outbox_events"
+    __table_args__ = (
+        UniqueConstraint("token_id", "partition_seq", name="uq_outbox_token_seq"),
+    )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     token_id = Column(String(100), nullable=True, index=True)

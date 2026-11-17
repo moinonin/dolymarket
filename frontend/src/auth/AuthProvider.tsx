@@ -50,7 +50,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const wallet = useWallet()
 
   const applyToken = useCallback(async () => {
-    const token = getStoredToken()
+    let token = getStoredToken()
+    if (!token) {
+      const refreshed = await api.refreshSession()
+      token = refreshed?.access_token ?? null
+    }
     if (!token) {
       setUser(null)
       return

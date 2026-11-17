@@ -426,32 +426,24 @@ export interface AgxStats {
 }
 
 // ---------------------------------------------------------------------------
-// Token storage
+// Token storage (in-memory access token; HttpOnly refresh cookie restores reloads)
 // ---------------------------------------------------------------------------
 
 const TOKEN_KEY = 'dolymarket_auth_token';
+let inMemoryToken: string | null = null;
 
 export function getStoredToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return inMemoryToken;
 }
 
 export function setStoredToken(token: string): void {
-  try {
-    localStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    /* ignore */
-  }
+  inMemoryToken = token;
 }
 
 export function clearStoredToken(): void {
+  inMemoryToken = null;
   try {
     localStorage.removeItem(TOKEN_KEY);
-    // Legacy key from a previous release; remove on every sign-out so a
-    // second long-lived token can never survive.
     localStorage.removeItem('pm_auth_token');
   } catch {
     /* ignore */
@@ -483,12 +475,19 @@ function extractDetail(data: any): string {
 
 export class ApiClient {
   private baseUrl: string;
+  private refreshPromise: Promise<AuthResponse | null> | null = null;
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
-  private async request<T>(path: string, options: RequestInit = {}, auth = true, silent = false): Promise<T> {
+  private async request<T>(
+    path: string,
+    options: RequestInit = {},
+    auth = true,
+    silent = false,
+    retried = false
+  ): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
@@ -500,11 +499,22 @@ export class ApiClient {
 
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
+      res = await fetch(`${this.baseUrl}${path}`, {
+        credentials: 'include',
+        ...options,
+        headers,
+      });
     } catch (err: any) {
       const msg = `Network error: ${err?.message ?? 'backend unreachable'}`;
-      toastHandler?.(msg, 'error');
+      if (!silent) toastHandler?.(msg, 'error');
       throw new ApiError(0, msg);
+    }
+
+    if (res.status === 401 && auth && !retried) {
+      const refreshed = await this.refreshSession().catch(() => null);
+      if (refreshed?.access_token) {
+        return this.request<T>(path, options, auth, silent, true);
+      }
     }
 
     if (!res.ok) {
@@ -578,7 +588,38 @@ export class ApiClient {
     return data;
   }
 
+  async refreshSession(): Promise<AuthResponse | null> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = (async () => {
+      try {
+        const data = await this.request<AuthResponse>(
+          '/api/v1/auth/refresh',
+          { method: 'POST' },
+          false,
+          true
+        );
+        if (data?.access_token) {
+          setStoredToken(data.access_token);
+          return data;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+    return this.refreshPromise;
+  }
+
   logout(): void {
+    const token = getStoredToken();
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    void fetch(`${this.baseUrl}/api/v1/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+    }).catch(() => {});
     clearStoredToken();
   }
 

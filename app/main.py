@@ -160,6 +160,8 @@ async def lifespan(app: FastAPI):
 
         if DATABASE_URL.startswith("sqlite") and os.environ.get("ALLOW_SQLITE_PROD", "").strip() != "1":
             raise RuntimeError("Production requires explicit non-SQLite DATABASE_URL")
+        if os.environ.get("CORS_ALLOW_ORIGINS", "*").strip() in ("", "*"):
+            raise RuntimeError("Production requires explicit CORS_ALLOW_ORIGINS (wildcard '*' not allowed)")
     else:
         await init_db()
     from app.db.seed import seed
