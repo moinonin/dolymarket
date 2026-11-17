@@ -65,3 +65,54 @@ async def test_proxy_returns_503_when_unconfigured(client: AsyncClient, monkeypa
     r = await client.get("/api/v4/dexbuilder/markets")
     assert r.status_code == 503
     assert r.json()["detail"] == "DEXBUILDER_NOT_CONFIGURED"
+
+
+async def test_platform_deposit_withdraw_sign_data_and_submit(client: AsyncClient):
+    from app.api.v4.dexbuilder.proxy import get_client
+    from app.db.session import AsyncSessionLocal
+    from app.main import app
+    from app.models.domain import User
+    from sqlalchemy import select
+
+    h = await auth_headers(client, "dexsign@example.com")
+    async with AsyncSessionLocal() as s:
+        u = (await s.execute(select(User).where(User.email == "dexsign@example.com"))).scalar_one()
+        u.dexbuilder_wallet = "0x1111111111111111111111111111111111111111"
+        await s.commit()
+
+    calls: list[tuple[str, dict, str | None]] = []
+
+    class FakeClient:
+        async def create_deposit_sign_data(self, payload, user_wallet=None):
+            calls.append(("deposit_sign", payload, user_wallet))
+            return {"to": "0x2222222222222222222222222222222222222222", "data": "0xdeadbeef"}
+
+        async def create_withdraw_sign_data(self, payload, user_wallet=None):
+            calls.append(("withdraw_sign", payload, user_wallet))
+            return {"domain": {"name": "DexBuilder"}, "types": {}, "primaryType": "Withdraw", "message": {"amount": "10"}}
+
+        async def submit_withdraw(self, payload, user_wallet=None):
+            calls.append(("withdraw_submit", payload, user_wallet))
+            return {"status": "submitted", "tx_id": "wdr-1"}
+
+    app.dependency_overrides[get_client] = lambda: FakeClient()
+    try:
+        r1 = await client.post("/api/v4/dexbuilder/platform/deposit/sign_data", json={"amount": "10"}, headers=h)
+        assert r1.status_code == 200
+        assert r1.json()["to"].startswith("0x2222")
+
+        r2 = await client.post("/api/v4/dexbuilder/platform/withdraw/sign_data", json={"amount": "10"}, headers=h)
+        assert r2.status_code == 200
+        assert r2.json()["primaryType"] == "Withdraw"
+
+        r3 = await client.post(
+            "/api/v4/dexbuilder/platform/withdraw/submit",
+            json={"amount": "10", "signature": "0xsig"},
+            headers=h,
+        )
+        assert r3.status_code == 200
+        assert r3.json()["status"] == "submitted"
+        assert [c[0] for c in calls] == ["deposit_sign", "withdraw_sign", "withdraw_submit"]
+        assert all(c[2] == "0x1111111111111111111111111111111111111111" for c in calls)
+    finally:
+        app.dependency_overrides.pop(get_client, None)

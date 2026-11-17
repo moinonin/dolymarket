@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal, InvalidOperation
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import (
@@ -215,8 +216,16 @@ async def get_balance(
             locked_dispute_balance=ZERO,
             pending_rewards=ZERO,
         )
-        session.add(row)
-        await session.flush()
+        if hasattr(session, "begin_nested"):
+            try:
+                async with session.begin_nested():
+                    session.add(row)
+                    await session.flush()
+            except IntegrityError:
+                row = (await session.execute(stmt)).scalar_one()
+        else:
+            session.add(row)
+            await session.flush()
     return row
 
 
@@ -778,6 +787,29 @@ async def claim_rewards(
         f"epoch:{row.last_reward_epoch or 'accrual'}",
     )
     return amount, row
+
+
+async def distribute_matured_epochs(session: AsyncSession) -> int:
+    """Distribute any open AGX reward epochs older than 24 hours."""
+    cutoff = now_utc() - timedelta(hours=24)
+    open_epochs = (
+        await session.execute(
+            select(AgxRewardEpoch)
+            .where(AgxRewardEpoch.distributed.is_(False))
+            .order_by(AgxRewardEpoch.epoch_number.asc())
+        )
+    ).scalars().all()
+    count = 0
+    for ep in open_epochs:
+        started = ep.started_at
+        if started is None:
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if started <= cutoff:
+            await distribute_epoch(session, epoch_number=ep.epoch_number)
+            count += 1
+    return count
 
 
 async def reward_history(session: AsyncSession, user_id: str) -> list[AgxLedger]:

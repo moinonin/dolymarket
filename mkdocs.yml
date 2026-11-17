@@ -53,6 +53,7 @@ nav:
   - API reference: api-reference.md
   - FAQ: faq.md
   - Engineering:
+    - Sprints & roadmap: SPRINTS.md
     - Improvement plan: improve.md
     - DexBuilder TODO: dexbuilder-todo.md
     - Security audit (2026-11): security-audit.md

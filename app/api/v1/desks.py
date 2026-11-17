@@ -27,6 +27,7 @@ from app.models.domain import (
     User,
 )
 from app.services import collateral, copy_engine, desk_track_record
+from app.services.market_maker import MMConfig, mm_manager
 
 router = APIRouter(prefix="/api/v1", tags=["desks"])
 
@@ -530,3 +531,87 @@ async def list_copy_jobs(
             for j in jobs
         ]
     }
+
+
+class MMStartRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=64)
+    token_id: str = Field(min_length=1, max_length=100)
+    base_half_spread: Decimal = Field(default=Decimal("0.02"), gt=0, le=Decimal("0.25"))
+    quote_size: Decimal = Field(default=Decimal("10"), gt=0, le=Decimal("100000"))
+    max_inventory: Decimal = Field(default=Decimal("100"), gt=0, le=Decimal("1000000"))
+    max_usdc_exposure: Decimal = Field(default=Decimal("500"), gt=0, le=Decimal("10000000"))
+    daily_loss_limit_usdc: Decimal = Field(default=Decimal("50"), gt=0, le=Decimal("1000000"))
+    expiry_pull_minutes: int = Field(default=15, ge=0, le=1440)
+    tick_size: Decimal = Field(default=Decimal("0.01"), gt=0, le=Decimal("0.10"))
+    crypto_skew: bool = True
+    dry_run: bool = True
+    interval_s: float = Field(default=2.0, ge=0.5, le=60.0)
+
+
+async def _require_desk_operator(
+    desk_id: str, user: User, session: AsyncSession
+) -> Desk:
+    desk = (await session.execute(select(Desk).where(Desk.id == desk_id))).scalar_one_or_none()
+    if desk is None:
+        raise HTTPException(status_code=404, detail="DESK_NOT_FOUND")
+    if desk.owner_user_id != user.id and not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
+    return desk
+
+
+@router.post("/desks/{desk_id}/mm/start")
+async def start_desk_market_maker(
+    desk_id: str,
+    body: MMStartRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    _ensure_enabled()
+    desk = await _require_desk_operator(desk_id, user, session)
+    cfg = MMConfig(
+        desk_id=desk.id,
+        market_id=body.market_id,
+        token_id=body.token_id,
+        owner_user_id=desk.owner_user_id,
+        base_half_spread=body.base_half_spread,
+        quote_size=body.quote_size,
+        max_inventory=body.max_inventory,
+        max_usdc_exposure=body.max_usdc_exposure,
+        daily_loss_limit_usdc=body.daily_loss_limit_usdc,
+        expiry_pull_minutes=body.expiry_pull_minutes,
+        tick_size=body.tick_size,
+        crypto_skew=body.crypto_skew,
+        dry_run=body.dry_run,
+        interval_s=body.interval_s,
+    )
+    return await mm_manager.start(cfg)
+
+
+@router.post("/desks/{desk_id}/mm/stop")
+async def stop_desk_market_maker(
+    desk_id: str,
+    token_id: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    _ensure_enabled()
+    await _require_desk_operator(desk_id, user, session)
+    status = await mm_manager.stop(desk_id, token_id=token_id)
+    if status is None:
+        return {"desk_id": desk_id, "running": False}
+    return status
+
+
+@router.get("/desks/{desk_id}/mm/status")
+async def get_desk_market_maker_status(
+    desk_id: str,
+    token_id: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    _ensure_enabled()
+    await _require_desk_operator(desk_id, user, session)
+    status = mm_manager.get_status(desk_id, token_id=token_id)
+    if status is None:
+        return {"desk_id": desk_id, "running": False, "bots": []}
+    return status

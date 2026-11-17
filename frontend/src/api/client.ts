@@ -17,9 +17,10 @@ export class ApiError extends Error {
 // Domain models (mirroring SQLAlchemy schemas)
 // ---------------------------------------------------------------------------
 
-export type EventStatus = 'ACTIVE' | 'CLOSED' | 'RESOLVED';
+export type EventStatus = 'ACTIVE' | 'CLOSED' | 'RESOLVED' | 'UNFUNDED';
 export type MarketStatus =
   | 'ACTIVE'
+  | 'UNFUNDED'
   | 'SUSPENDED'
   | 'CLOSED'
   | 'IN_RESOLUTION'
@@ -42,6 +43,12 @@ export interface Market {
   tick_size: number;
   min_order_size: number;
   status: MarketStatus;
+  tier?: 'OFFICIAL' | 'COMMUNITY';
+  creator_user_id?: string | null;
+  resolution_criteria?: string | null;
+  oracle_feed?: string | null;
+  clarity?: { score: number; grade: 'HIGH' | 'MEDIUM' | 'LOW'; flags: string[] };
+  liquidity_funded_usdc?: number;
   neg_risk: boolean;
   winning_outcome_index: number | null;
   created_at: string;
@@ -56,6 +63,8 @@ export interface Event {
   category: string;
   tags: string[];
   status: EventStatus;
+  tier?: 'OFFICIAL' | 'COMMUNITY';
+  creator_user_id?: string | null;
   end_date: string | null;
   total_volume: number;
   markets?: Market[];
@@ -97,6 +106,7 @@ export interface LiveMarket {
   event_id: string;
   condition_id: string | null;
   question: string;
+  question_i18n?: Record<string, string> | null;
   event_title: string | null;
   slug: string | null;
   outcomes: string[];
@@ -478,7 +488,7 @@ export class ApiClient {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
-  private async request<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}, auth = true, silent = false): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((options.headers as Record<string, string>) || {}),
@@ -498,14 +508,17 @@ export class ApiClient {
     }
 
     if (!res.ok) {
-      let data: any;
+      const rawText = await res.text();
+      let data: any = rawText;
       try {
-        data = await res.json();
+        data = rawText ? JSON.parse(rawText) : {};
       } catch {
-        data = await res.text();
+        /* keep plain text body */
       }
       const msg = extractDetail(data) || `Request failed (${res.status})`;
-      toastHandler?.(msg, res.status === 401 || res.status === 403 ? 'error' : 'error');
+      if (!silent) {
+        toastHandler?.(msg, res.status === 401 || res.status === 403 ? 'error' : 'error');
+      }
       if (res.status === 401) {
         clearStoredToken();
         unauthorizedHandler?.(res.status, msg);
@@ -545,9 +558,11 @@ export class ApiClient {
 
   /** Request a cryptographic SIWE challenge for Web3 wallet authentication. */
   getWalletChallenge(address: string, chainId?: number): Promise<{ challenge: string; nonce: string; expires_at: string }> {
+    const domain = typeof window !== 'undefined' ? window.location.host : undefined;
+    const uri = typeof window !== 'undefined' ? window.location.origin : undefined;
     return this.request(
       '/api/v1/auth/wallet/challenge',
-      { method: 'POST', body: JSON.stringify({ address, chain_id: chainId ?? 8453 }) },
+      { method: 'POST', body: JSON.stringify({ address, chain_id: chainId ?? 8453, domain, uri }) },
       false
     );
   }
@@ -626,6 +641,28 @@ export class ApiClient {
     return this.request(`/api/v4/prediction/events/slug/${encodeURIComponent(slug)}`);
   }
 
+  createCommunityMarket(body: {
+    title: string;
+    question: string;
+    category?: string;
+    resolution_criteria: string;
+    outcomes?: string[];
+    end_date?: string;
+    initial_liquidity_usdc?: number;
+  }): Promise<any> {
+    return this.request('/api/v4/prediction/community/markets', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  fundCommunityMarket(marketId: string, amountUsdc: number): Promise<any> {
+    return this.request(`/api/v4/prediction/community/markets/${encodeURIComponent(marketId)}/fund`, {
+      method: 'POST',
+      body: JSON.stringify({ amount_usdc: amountUsdc }),
+    });
+  }
+
   listMarkets(params: { event_id?: string; category?: string; status?: string } = {}): Promise<{ markets: Market[] }> {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v && qs.set(k, v));
@@ -672,6 +709,71 @@ export class ApiClient {
     return this.request('/api/v4/prediction/orders', {
       method: 'POST',
       headers: { 'X-Idempotency-Key': key },
+      body: JSON.stringify(input),
+    });
+  }
+
+  getFearGreedLatest(profile = 'microstructure'): Promise<{
+    ewi: number;
+    score_0_100: number;
+    regime_state: string;
+    early_warning?: boolean;
+  }> {
+    return this.request(
+      `/api/v1/feargreed/latest?profile=${encodeURIComponent(profile)}`,
+      {},
+      false,
+      true
+    );
+  }
+
+  smartQuote(input: {
+    market_id: string;
+    token_id: string;
+    side: 'BUY' | 'SELL';
+    shares: number;
+    max_slippage_price?: number;
+  }): Promise<{
+    market_id: string;
+    token_id: string;
+    side: 'BUY' | 'SELL';
+    requested_shares: number;
+    fillable_shares: number;
+    has_amm: boolean;
+    clob_exhausted: boolean;
+    clob_shares: number;
+    clob_avg_price: number;
+    clob_notional_usdc: number;
+    amm_shares: number;
+    amm_avg_price: number;
+    amm_notional_usdc: number;
+    amm_fee_usdc: number;
+    amm_total_usdc: number;
+    blended_avg_price: number;
+  }> {
+    return this.request(
+      '/api/v4/prediction/orders/smart-quote',
+      { method: 'POST', body: JSON.stringify(input) },
+      false,
+      true
+    );
+  }
+
+  placeSmartOrder(input: {
+    market_id: string;
+    token_id: string;
+    side: 'BUY' | 'SELL';
+    shares: number;
+    max_slippage_price?: number;
+  }): Promise<{
+    status: string;
+    total_filled_shares: number;
+    clob_filled_shares: number;
+    amm_filled_shares: number;
+    blended_avg_price: number;
+  }> {
+    return this.request('/api/v4/prediction/orders/smart', {
+      method: 'POST',
       body: JSON.stringify(input),
     });
   }
@@ -782,8 +884,8 @@ export class ApiClient {
   createDesk(body: { name: string; slug: string; description?: string }): Promise<{ status: string; desk: any }> {
     return this.request('/api/v1/desks', { method: 'POST', body: JSON.stringify(body) });
   }
-  getMyDesk(): Promise<{ desk: any }> {
-    return this.request('/api/v1/desks/mine');
+  getMyDesk(silent = false): Promise<{ desk: any }> {
+    return this.request('/api/v1/desks/mine', {}, true, silent);
   }
   updateDesk(id: string, body: { name?: string; description?: string }): Promise<{ desk: any }> {
     return this.request(`/api/v1/desks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -796,6 +898,31 @@ export class ApiClient {
   }
   archiveDesk(id: string): Promise<{ status: string; desk: any }> {
     return this.request(`/api/v1/desks/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+  }
+  startDeskMarketMaker(
+    id: string,
+    body: {
+      market_id: string
+      token_id: string
+      base_half_spread?: string | number
+      quote_size?: string | number
+      max_inventory?: string | number
+      tick_size?: string | number
+      crypto_skew?: boolean
+      dry_run?: boolean
+      interval_s?: number
+    }
+  ): Promise<any> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/mm/start`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+  stopDeskMarketMaker(id: string): Promise<any> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/mm/stop`, { method: 'POST' });
+  }
+  getDeskMarketMakerStatus(id: string): Promise<any> {
+    return this.request(`/api/v1/desks/${encodeURIComponent(id)}/mm/status`);
   }
   listDeskFollowers(id: string): Promise<{ followers: any[] }> {
     return this.request(`/api/v1/desks/${encodeURIComponent(id)}/followers`);
@@ -889,6 +1016,81 @@ export class ApiClient {
   }
   getDexBuilderTime(): Promise<{ server_time: number }> {
     return this.request('/api/v4/dexbuilder/time', {}, false);
+  }
+  placeDexBuilderOrder(payload: {
+    token_id: string
+    side: 'BUY' | 'SELL'
+    price: string
+    size: string
+    total_cost?: string
+    order_type?: string
+    order_mode?: string
+    client_order_id?: string
+    post_only?: boolean
+    sell_all?: boolean
+    expire_time?: number
+  }): Promise<{ order_id: string; client_order_id?: string; status: string; created_at?: number }> {
+    return this.request('/api/v4/dexbuilder/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  getDexBuilderOrders(params: { status?: string; condition_id?: string; limit?: number; cursor?: string } = {}): Promise<any> {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.condition_id) q.set('condition_id', params.condition_id);
+    if (params.limit != null) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return this.request(`/api/v4/dexbuilder/orders${qs ? '?' + qs : ''}`);
+  }
+  cancelDexBuilderOrder(orderId: string): Promise<any> {
+    return this.request(`/api/v4/dexbuilder/orders/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE',
+    });
+  }
+  getDexBuilderAccountBook(params: { limit?: number; cursor?: string } = {}): Promise<any> {
+    const q = new URLSearchParams();
+    if (params.limit != null) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return this.request(`/api/v4/dexbuilder/account_book${qs ? '?' + qs : ''}`);
+  }
+  getDexBuilderClaimable(): Promise<{ total_claimable_amount: string; event_count: number }> {
+    return this.request('/api/v4/dexbuilder/claims/available');
+  }
+  claimDexBuilderWinnings(payload: Record<string, any> = {}): Promise<any> {
+    return this.request('/api/v4/dexbuilder/claims', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  getDexBuilderUserInfo(): Promise<any> {
+    return this.request('/api/v4/dexbuilder/platform/user');
+  }
+  getDexBuilderDeposits(page = 1, pageSize = 20): Promise<any> {
+    return this.request(`/api/v4/dexbuilder/platform/deposits?page=${page}&page_size=${pageSize}`);
+  }
+  getDexBuilderWithdrawals(page = 1, pageSize = 20): Promise<any> {
+    return this.request(`/api/v4/dexbuilder/platform/withdrawals?page=${page}&page_size=${pageSize}`);
+  }
+  createDexBuilderDepositSignData(payload: Record<string, any>): Promise<any> {
+    return this.request('/api/v4/dexbuilder/platform/deposit/sign_data', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  createDexBuilderWithdrawSignData(payload: Record<string, any>): Promise<any> {
+    return this.request('/api/v4/dexbuilder/platform/withdraw/sign_data', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+  submitDexBuilderWithdraw(payload: Record<string, any>): Promise<any> {
+    return this.request('/api/v4/dexbuilder/platform/withdraw/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   }
 
   // ---- Live DexBuilder data (public upstream reads, read-only) -------------

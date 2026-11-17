@@ -25,6 +25,9 @@ export function WalletButton() {
     isConnecting,
     walletType,
     error,
+    usdcBalance,
+    usdcBalanceLoading,
+    refreshUsdcBalance,
     connect,
     disconnect,
     signMessage,
@@ -198,6 +201,17 @@ Wallet: ${address}`
                       <ExternalLink className="h-2.5 w-2.5" />
                     </a>
                   </div>
+                </div>
+                <div className="mt-2 flex items-center justify-between border-t border-slate-800/80 pt-2 text-[11px]">
+                  <span className="text-slate-400">On-Chain USDC</span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshUsdcBalance()}
+                    className="font-mono text-emerald-400 hover:text-emerald-300"
+                    title="Refresh on-chain USDC balance"
+                  >
+                    {usdcBalanceLoading ? '…' : usdcBalance !== null ? `$${usdcBalance}` : 'N/A'}
+                  </button>
                 </div>
               </div>
 

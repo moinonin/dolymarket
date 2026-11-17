@@ -12,6 +12,14 @@ const STATUS_TABS = [
   { key: 'closed', label: 'All closed' },
 ]
 
+const LANG_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'en', label: 'EN' },
+  { key: 'cn', label: '中文' },
+] as const
+
+type LangFilter = (typeof LANG_TABS)[number]['key']
+
 export default function LiveMarketsPage({
   onOpenMarket,
 }: {
@@ -23,6 +31,7 @@ export default function LiveMarketsPage({
   const [search, setSearch] = useState('')
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [status, setStatus] = useState('active')
+  const [lang, setLang] = useState<LangFilter>('all')
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [auth, setAuth] = useState<LiveAuthStatus | null>(null)
@@ -64,14 +73,35 @@ export default function LiveMarketsPage({
   const filtered = useMemo(() => {
     if (!markets) return []
     const q = search.trim().toLowerCase()
-    if (!q) return markets
-    return markets.filter(
-      (m) =>
-        m.question.toLowerCase().includes(q) ||
-        (m.event_title || '').toLowerCase().includes(q) ||
-        (m.category || '').toLowerCase().includes(q)
-    )
-  }, [markets, search])
+    return markets
+      .filter((m) => {
+        if (lang === 'en') {
+          if (m.question_i18n?.en) return true
+          return !/[\u4e00-\u9fff]/.test(m.question)
+        }
+        if (lang === 'cn') {
+          if (m.question_i18n?.cn || m.question_i18n?.zh) return true
+          return /[\u4e00-\u9fff]/.test(m.question)
+        }
+        return true
+      })
+      .map((m) => ({
+        ...m,
+        question:
+          lang === 'en'
+            ? m.question_i18n?.en || m.question
+            : lang === 'cn'
+              ? m.question_i18n?.cn || m.question_i18n?.zh || m.question
+              : m.question,
+      }))
+      .filter(
+        (m) =>
+          !q ||
+          m.question.toLowerCase().includes(q) ||
+          (m.event_title || '').toLowerCase().includes(q) ||
+          (m.category || '').toLowerCase().includes(q)
+      )
+  }, [markets, search, lang])
 
   return (
     <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24 pt-8">
@@ -157,6 +187,21 @@ export default function LiveMarketsPage({
               }`}
             >
               {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/60 p-0.5">
+          {LANG_TABS.map((l) => (
+            <button
+              key={l.key}
+              onClick={() => setLang(l.key)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                lang === l.key
+                  ? 'bg-slate-800 text-emerald-300'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {l.label}
             </button>
           ))}
         </div>

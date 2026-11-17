@@ -10,7 +10,7 @@ import { useToast } from '../context/toast'
 import { useAuth } from '../auth/AuthProvider'
 
 type Side = 'BUY' | 'SELL'
-type OrderType = 'LIMIT' | 'MARKET'
+type OrderType = 'LIMIT' | 'MARKET' | 'SMART'
 
 const TIFS = ['GTC', 'IOC', 'FOK'] as const
 
@@ -43,7 +43,27 @@ export default function TradeTicket({
   const [postOnly, setPostOnly] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [agx, setAgx] = useState<AgxBalance | null>(null)
+  const [smartPreview, setSmartPreview] = useState<Awaited<ReturnType<typeof api.smartQuote>> | null>(null)
+  const [health, setHealth] = useState<{ ewi: number; regime_state: string; score_0_100: number } | null>(null)
   const submitRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    let cancelled = false
+    const pull = () => {
+      api
+        .getFearGreedLatest('microstructure')
+        .then((r) => {
+          if (!cancelled) setHealth(r)
+        })
+        .catch(() => {})
+    }
+    pull()
+    const iv = window.setInterval(pull, 15000)
+    return () => {
+      cancelled = true
+      window.clearInterval(iv)
+    }
+  }, [])
 
   // The AGX tier is advisory UI only: it previews the taker discount the
   // backend applies. A missing balance row or failed read simply shows nothing.
@@ -78,6 +98,44 @@ export default function TradeTicket({
 
   const priceNum = parseFloat(price)
   const amountNum = parseFloat(amount)
+  const bestBid = bids[0]?.price
+  const bestAsk = asks[0]?.price
+  const spreadCents =
+    bestBid != null && bestAsk != null && bestAsk >= bestBid
+      ? (bestAsk - bestBid) * 100
+      : null
+  const highToxicity =
+    (health != null && health.ewi >= 0.45) ||
+    (spreadCents != null && spreadCents >= 6) ||
+    bestBid == null ||
+    bestAsk == null
+
+  useEffect(() => {
+    if (orderType !== 'SMART' || Number.isNaN(amountNum) || amountNum <= 0) {
+      setSmartPreview(null)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      api
+        .smartQuote({
+          market_id: market.id,
+          token_id: token.token_id,
+          side,
+          shares: amountNum,
+        })
+        .then((q) => {
+          if (!cancelled) setSmartPreview(q)
+        })
+        .catch(() => {
+          if (!cancelled) setSmartPreview(null)
+        })
+    }, 180)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [orderType, market.id, token.token_id, side, amountNum])
 
   // Pre-order validation warnings (mirror backend business rules).
   const warnings: string[] = []
@@ -112,6 +170,31 @@ export default function TradeTicket({
       return
     }
     if (submitting || warnings.length > 0) return
+    if (orderType === 'SMART') {
+      if (Number.isNaN(amountNum) || amountNum <= 0) return
+      setSubmitting(true)
+      api
+        .placeSmartOrder({
+          market_id: market.id,
+          token_id: token.token_id,
+          side,
+          shares: amountNum,
+        })
+        .then((res) => {
+          push(
+            `Smart Route ${res.status}: ${res.total_filled_shares} sh @ $${res.blended_avg_price.toFixed(3)} (CLOB ${res.clob_filled_shares} / AMM ${res.amm_filled_shares})`,
+            'info'
+          )
+          setAmount('')
+          setSmartPreview(null)
+          onPlaced()
+        })
+        .catch((err) => {
+          push(err.message || 'Smart order failed', 'error')
+        })
+        .finally(() => setSubmitting(false))
+      return
+    }
     const optimistic =
       orderType === 'LIMIT'
         ? addPendingOrder({
@@ -212,6 +295,33 @@ export default function TradeTicket({
         ))}
       </div>
 
+      <div className="mb-3 flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-[11px]">
+        <span className="text-slate-400">
+          Health:{' '}
+          <span
+            className={`font-semibold ${
+              health?.ewi != null && health.ewi >= 0.75
+                ? 'text-rose-400'
+                : health?.ewi != null && health.ewi >= 0.45
+                  ? 'text-amber-300'
+                  : 'text-emerald-400'
+            }`}
+          >
+            {health?.regime_state ?? 'STABLE'}
+          </span>
+          {health != null && <span className="ml-1 font-mono text-slate-500">(EWI {health.ewi.toFixed(2)})</span>}
+        </span>
+        <span className="font-mono text-slate-300">
+          {spreadCents != null ? `Spread ${spreadCents.toFixed(1)}¢` : 'Thin book'}
+        </span>
+      </div>
+      {highToxicity && orderType === 'MARKET' && (
+        <div className="mb-3 rounded-lg border border-amber-500/35 bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-200">
+          ⚠ Elevated spread/toxicity — use <span className="font-semibold">Limit</span> or{' '}
+          <span className="font-semibold">Smart Route</span> to cap slippage.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-1.5">
         <button
           onClick={() => setSide('BUY')}
@@ -235,7 +345,7 @@ export default function TradeTicket({
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-xs">
         <button
           onClick={() => setOrderType('MARKET')}
           className={`rounded-lg py-1.5 font-medium transition ${
@@ -252,6 +362,16 @@ export default function TradeTicket({
         >
           Limit
         </button>
+        <button
+          onClick={() => setOrderType('SMART')}
+          className={`rounded-lg py-1.5 font-medium transition ${
+            orderType === 'SMART'
+              ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+              : 'text-slate-400 hover:bg-slate-800/50'
+          }`}
+        >
+          Smart Route
+        </button>
       </div>
 
       <div className="mt-3 space-y-2.5">
@@ -266,6 +386,41 @@ export default function TradeTicket({
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none transition focus:border-blue-500"
             />
           </label>
+        ) : orderType === 'SMART' ? (
+          <div className="rounded-lg border border-emerald-500/25 bg-emerald-950/20 px-3 py-2 text-xs text-slate-300">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-emerald-300">Atomic CLOB + AMM Router</span>
+              {smartPreview?.clob_exhausted && smartPreview.amm_shares > 0 && (
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                  AMM Backstop Active
+                </span>
+              )}
+            </div>
+            {smartPreview ? (
+              <div className="mt-1.5 space-y-0.5 font-mono text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>CLOB leg</span>
+                  <span className="text-slate-200">
+                    {smartPreview.clob_shares} sh @ ${smartPreview.clob_avg_price.toFixed(3)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>AMM leg</span>
+                  <span className="text-slate-200">
+                    {smartPreview.amm_shares} sh @ ${smartPreview.amm_avg_price.toFixed(3)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-slate-800/80 pt-1 text-emerald-300">
+                  <span>Blended avg</span>
+                  <span>${smartPreview.blended_avg_price.toFixed(3)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Enter share size to preview CLOB + AMM split.
+              </p>
+            )}
+          </div>
         ) : (
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-400">
             Executes at best resting price{' '}
@@ -320,6 +475,13 @@ export default function TradeTicket({
               </button>
             ))}
           </div>
+          <p className="mt-1 text-[10px] text-slate-500">
+            {tif === 'GTC'
+              ? 'Good-Til-Cancelled: rests on book until filled or cancelled.'
+              : tif === 'IOC'
+                ? 'Immediate-Or-Cancel: fills available size now, cancels remainder.'
+                : 'Fill-Or-Kill: fills 100% immediately or cancels whole order.'}
+          </p>
         </div>
 
         {orderType === 'LIMIT' && (

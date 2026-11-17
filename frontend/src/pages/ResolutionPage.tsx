@@ -15,6 +15,7 @@ interface ResolutionRow {
   proposer_address: string | null
   bond_amount: number | null
   dispute_deadline: string | null
+  evidence?: Record<string, any> | null
 }
 
 export default function ResolutionPage() {
@@ -155,6 +156,22 @@ function ResolutionCard({
             {remaining || '—'}
           </span>
         </div>
+        {row.evidence && (
+          <div className="rounded-lg border border-blue-500/30 bg-blue-950/20 px-3 py-2 text-[11px] text-blue-200">
+            <div className="font-semibold text-blue-300">Oracle Proof / Evidence</div>
+            {row.evidence.feed && (
+              <div className="mt-0.5 font-mono">
+                {row.evidence.feed}: {row.evidence.observed_value} {row.evidence.comparator} {row.evidence.threshold}
+              </div>
+            )}
+            {row.evidence.rationale && <div className="mt-0.5 text-slate-300">{row.evidence.rationale}</div>}
+            {row.evidence.source_url && (
+              <div className="mt-0.5 truncate font-mono text-[10px] text-blue-300/80">
+                Source: {row.evidence.source_url}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {row.dispute_status === 'PROPOSED' && (

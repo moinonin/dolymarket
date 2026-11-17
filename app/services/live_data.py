@@ -16,6 +16,8 @@ import time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 
+import httpx
+
 from app.services.dexbuilder import DexBuilderClient, get_config
 
 #: Upstream does not publish tick size / minimum order size for public markets.
@@ -176,12 +178,17 @@ def normalize_market(raw: dict) -> dict:
     closed = bool(raw.get("closed")) or status == "CLOSED"
     winning_index, winning_symbol = _winning_outcome(outcome_prices, outcomes, closed)
 
+    raw_title = raw.get("title") or raw.get("question")
+    question_i18n = raw_title if isinstance(raw_title, dict) else None
+    question_text = _label(raw_title)
+
     return {
         "id": str(raw.get("market_id") or raw.get("id") or ""),
         "event_id": str(raw.get("event_id") or ""),
         "condition_id": raw.get("condition_id"),
-        "question": str(raw.get("title") or raw.get("question") or ""),
-        "event_title": raw.get("event_title"),
+        "question": question_text,
+        "question_i18n": question_i18n,
+        "event_title": _label(raw.get("event_title")) or None,
         "slug": raw.get("slug"),
         "outcomes": outcomes,
         "tokens": tokens,
@@ -397,6 +404,19 @@ class LiveMarketFeed:
             raise LiveUnavailableError("DexBuilder upstream circuit is open")
         try:
             value = await factory()
+        except httpx.HTTPStatusError as exc:
+            # 4xx (e.g. 400 on active offset or 404 on unindexed token) is not an
+            # upstream outage — do not trip the global circuit breaker.
+            if 400 <= exc.response.status_code < 500:
+                if cached is not None:
+                    return cached[1]
+                raise LiveUnavailableError(f"DexBuilder upstream rejected request ({exc.response.status_code})") from exc
+            self._failures += 1
+            if self._failures >= FAILURE_THRESHOLD:
+                self._circuit_open_until = time.monotonic() + CIRCUIT_OPEN_SECONDS
+            if cached is not None:
+                return cached[1]
+            raise LiveUnavailableError(f"DexBuilder upstream unavailable: {exc}") from exc
         except Exception as exc:  # noqa: BLE001 - upstream may raise anything
             self._failures += 1
             if self._failures >= FAILURE_THRESHOLD:
@@ -427,7 +447,13 @@ class LiveMarketFeed:
         if offset:
             params["offset"] = offset
         key = f"markets:{upstream_status}:{category}:{limit}:{offset}"
-        raw = await self._fetch(key, lambda: self.client.get_markets(**params))
+        try:
+            raw = await self._fetch(key, lambda: self.client.get_markets(**params))
+        except LiveUnavailableError as exc:
+            if offset > 0 and "(400)" in str(exc):
+                raw = {"items": [], "total": 0}
+            else:
+                raise
         items = raw.get("items", []) if isinstance(raw, dict) else (raw or [])
         markets = [normalize_market(item) for item in items if isinstance(item, dict)]
         return {
@@ -531,10 +557,16 @@ class LiveMarketFeed:
         limit: int = 200,
     ) -> dict:
         key = f"candles:{token_id}:{interval}:{limit}"
-        raw = await self._fetch(
-            key,
-            lambda: self.client.get_candlesticks(token_id, interval=interval, limit=limit),
-        )
+        try:
+            raw = await self._fetch(
+                key,
+                lambda: self.client.get_candlesticks(token_id, interval=interval, limit=limit),
+            )
+        except LiveUnavailableError as exc:
+            if "(400)" in str(exc) or "(404)" in str(exc):
+                raw = []
+            else:
+                raise
         items = raw if isinstance(raw, list) else (raw or {}).get("items") or []
         return {
             "token_id": token_id,

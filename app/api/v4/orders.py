@@ -24,7 +24,7 @@ from app.models.domain import (
     TradeFill,
     User,
 )
-from app.services import collateral, copy_engine, desk_track_record
+from app.services import collateral, copy_engine, desk_track_record, router as smart_router
 from app.ws.broadcaster import broadcast_engine_events
 
 logger = logging.getLogger("app.orders")
@@ -321,6 +321,94 @@ async def submit_order(
     }
     _store_idempotent(session, user.id, idempotency_key, req_hash, payload)
     return payload
+
+
+class SmartOrderRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=64)
+    token_id: str = Field(min_length=1, max_length=100)
+    side: str = Field(max_length=10)
+    shares: Decimal = Field(gt=0, le=Decimal("1000000"))
+    max_slippage_price: Decimal | None = Field(default=None, ge=Decimal("0.01"), le=Decimal("0.99"))
+
+    @field_validator("side")
+    @classmethod
+    def _check_smart_side(cls, v: str) -> str:
+        u = v.upper()
+        if u not in ("BUY", "SELL"):
+            raise ValueError("side must be BUY or SELL")
+        return u
+
+    @field_validator("shares", "max_slippage_price")
+    @classmethod
+    def _check_smart_finite(cls, v):
+        if v is not None and not v.is_finite():
+            raise ValueError("must be a finite number")
+        return v
+
+
+@router.post("/orders/smart-quote")
+async def smart_order_quote(
+    body: SmartOrderRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    market = (
+        await session.execute(select(Market).where(Market.id == body.market_id))
+    ).scalar_one_or_none()
+    if market is None:
+        raise HTTPException(status_code=404, detail="Market not found")
+    token = (
+        await session.execute(
+            select(OutcomeToken).where(
+                OutcomeToken.market_id == market.id,
+                OutcomeToken.token_id == body.token_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if token is None:
+        raise HTTPException(status_code=404, detail="Outcome token not found")
+    return await smart_router.smart_quote(
+        session,
+        market,
+        token,
+        side=body.side,
+        shares=body.shares,
+        max_slippage_price=body.max_slippage_price,
+    )
+
+
+@router.post("/orders/smart", status_code=201)
+async def execute_smart_order_route(
+    body: SmartOrderRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    market = (
+        await session.execute(select(Market).where(Market.id == body.market_id))
+    ).scalar_one_or_none()
+    if market is None:
+        raise HTTPException(status_code=404, detail="Market not found")
+    token = (
+        await session.execute(
+            select(OutcomeToken).where(
+                OutcomeToken.market_id == market.id,
+                OutcomeToken.token_id == body.token_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if token is None:
+        raise HTTPException(status_code=404, detail="Outcome token not found")
+    try:
+        return await smart_router.execute_smart_order(
+            session,
+            user.id,
+            market,
+            token,
+            side=body.side,
+            shares=body.shares,
+            max_slippage_price=body.max_slippage_price,
+        )
+    except OrderRejected as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.detail)
 
 
 @router.get("/orders")

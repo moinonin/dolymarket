@@ -195,7 +195,21 @@ async def get_agx_balance(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    row = await agx.get_balance(session, user.id)
+    row = await agx.peek_balance(session, user.id)
+    if row is None:
+        return {
+            "user_id": user.id,
+            "balance": _s(Decimal("0")),
+            "staked_balance": _s(Decimal("0")),
+            "locked_gating_balance": _s(Decimal("0")),
+            "locked_dispute_balance": _s(Decimal("0")),
+            "pending_rewards": _s(Decimal("0")),
+            "last_reward_epoch": 0,
+            "tier": "0",
+            "tier_name": agx.TIER_NAMES["0"],
+            "discount_rate": _s(Decimal("0")),
+            "updated_at": None,
+        }
     return _balance_payload(row)
 
 

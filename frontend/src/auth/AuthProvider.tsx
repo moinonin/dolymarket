@@ -21,6 +21,7 @@ interface AuthUser {
   id: string
   email: string
   is_admin: boolean
+  dexbuilder_wallet?: string | null
 }
 
 interface AuthContextValue {
@@ -56,7 +57,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const me = await api.getMe()
-      setUser({ id: me.id, email: me.email, is_admin: Boolean(me.is_admin) })
+      setUser({
+        id: me.id,
+        email: me.email,
+        is_admin: Boolean(me.is_admin),
+        dexbuilder_wallet: me.dexbuilder_wallet ?? null,
+      })
     } catch {
       setUser(null)
     }
@@ -65,7 +71,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       const me = await api.getMe()
-      setUser({ id: me.id, email: me.email, is_admin: Boolean(me.is_admin) })
+      setUser({
+        id: me.id,
+        email: me.email,
+        is_admin: Boolean(me.is_admin),
+        dexbuilder_wallet: me.dexbuilder_wallet ?? null,
+      })
     } catch {
       setUser(null)
     }
@@ -119,7 +130,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('No wallet address detected')
       }
 
-      const activeChainId = wallet.chainId || 8453
+      const storedChain = Number(localStorage.getItem('dolymarket_wallet_chain_id'))
+      const activeChainId = (Number.isFinite(storedChain) && storedChain > 0 ? storedChain : wallet.chainId) || 8453
       push('Requesting wallet sign-in challenge…', 'info')
       const challengeRes = await api.getWalletChallenge(activeAddr, activeChainId)
 

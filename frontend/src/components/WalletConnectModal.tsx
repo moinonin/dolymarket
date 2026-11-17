@@ -31,6 +31,7 @@ export function WalletConnectModal({
     isConnecting,
     walletType,
     error,
+    discoveredWallets,
     connect,
     disconnect,
     signMessage,
@@ -70,6 +71,25 @@ Wallet: ${address}`
       setIsSigningIn(true)
       const ok = await loginWithWallet()
       if (ok) onClose()
+    } finally {
+      setIsSigningIn(false)
+    }
+  }
+
+  const connectAndSignIn = async (
+    type: 'injected' | 'coinbase' | 'gate',
+    providerOverride?: any
+  ) => {
+    const ok = await connect(type, providerOverride)
+    if (!ok) return
+    if (user) {
+      onClose()
+      return
+    }
+    setIsSigningIn(true)
+    try {
+      const signedIn = await loginWithWallet()
+      if (signedIn) onClose()
     } finally {
       setIsSigningIn(false)
     }
@@ -227,13 +247,75 @@ Wallet: ${address}`
         ) : (
           /* Disconnected Choices */
           <div className="mt-5 space-y-3">
+            {discoveredWallets.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Detected Wallets
+                </p>
+                {discoveredWallets.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => {
+                      const isGate = w.name.toLowerCase().includes('gate') || (w.rdns || '').includes('gate')
+                      void connectAndSignIn(isGate ? 'gate' : 'injected', w.provider)
+                    }}
+                    disabled={isConnecting || isSigningIn}
+                    className="group flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-left transition hover:border-emerald-500/40 hover:bg-slate-950"
+                  >
+                    <div className="flex items-center gap-3">
+                      {w.icon ? (
+                        <img src={w.icon} alt={w.name} className="h-9 w-9 rounded-lg border border-slate-800 bg-slate-900 p-1" />
+                      ) : (
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+                          <Wallet className="h-5 w-5" />
+                        </div>
+                      )}
+                      <div>
+                        <h4 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                          {w.name}
+                        </h4>
+                        <p className="text-[10px] text-slate-400">
+                          {w.rdns || 'EIP-6963 browser extension'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-medium text-emerald-400 opacity-0 group-hover:opacity-100 transition">
+                      Connect →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <button
               type="button"
-              onClick={async () => {
-                const ok = await connect('injected')
-                if (ok) onClose()
-              }}
-              disabled={isConnecting}
+              onClick={() => void connectAndSignIn('gate')}
+              disabled={isConnecting || isSigningIn}
+              className="group flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-left transition hover:border-emerald-500/40 hover:bg-slate-950"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                    Gate Wallet
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    Gate.io Web3 / Quick Wallet extension
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-emerald-400 opacity-0 group-hover:opacity-100 transition">
+                Connect →
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void connectAndSignIn('injected')}
+              disabled={isConnecting || isSigningIn}
               className="group flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-left transition hover:border-emerald-500/40 hover:bg-slate-950"
             >
               <div className="flex items-center gap-3">
@@ -256,11 +338,8 @@ Wallet: ${address}`
 
             <button
               type="button"
-              onClick={async () => {
-                const ok = await connect('coinbase')
-                if (ok) onClose()
-              }}
-              disabled={isConnecting}
+              onClick={() => void connectAndSignIn('coinbase')}
+              disabled={isConnecting || isSigningIn}
               className="group flex w-full items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-left transition hover:border-emerald-500/40 hover:bg-slate-950"
             >
               <div className="flex items-center gap-3">

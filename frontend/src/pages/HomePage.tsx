@@ -235,7 +235,7 @@ export default function HomePage({
           Back a view with real orders, watch the price move, and if you're
           right, your shares settle at exactly $1.00.
         </p>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <div
               key={f.title}
@@ -252,7 +252,7 @@ export default function HomePage({
       </section>
 
       {/* How it works */}
-      <section className="mt-20 grid gap-3 md:grid-cols-3">
+      <section className="mt-20 grid gap-4 md:grid-cols-3">
         {STEPS.map((step, i) => (
           <div
             key={step.title}
@@ -278,8 +278,8 @@ export default function HomePage({
               Sign in the way you prefer
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Email and password, a hardware-backed passkey, or a one-tap
-              federated session with Google, Microsoft or Apple. Algorithmic
+              Connect your non-custodial Web3 wallet (MetaMask, Rabby, Coinbase),
+              authenticate with biometric passkeys, or use email. Algorithmic
               traders can rotate an HMAC-signed API key and submit orders with
               idempotency keys.
             </p>
@@ -290,7 +290,7 @@ export default function HomePage({
               </li>
               <li className="flex items-center gap-2">
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                OAuth 2.0 authorization-code flow with one-time token exchange
+                Sign-In with Ethereum (SIWE) cryptographic challenge verification
               </li>
               <li className="flex items-center gap-2">
                 <Radio className="h-3.5 w-3.5 text-emerald-400" />
@@ -364,7 +364,7 @@ const FEATURES = [
   {
     icon: ShieldCheck,
     title: 'Sign in without passwords',
-    body: 'Passkeys or Google, Microsoft and Apple sign-in. API keys for bots, rate limits for everyone’s safety.',
+    body: 'Sign in with your Web3 wallet (MetaMask, Rabby, Coinbase) or biometric passkeys. HMAC API keys for automated bots.',
   },
 ]
 

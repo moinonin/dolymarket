@@ -49,7 +49,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
     if (!user) { setMyDesk(null); fetchedMyDesk.current = false; return }
     if (fetchedMyDesk.current) return
     fetchedMyDesk.current = true
-    api.getMyDesk().then((r) => setMyDesk(r.desk)).catch(() => setMyDesk(null))
+    api.getMyDesk(true).then((r) => setMyDesk(r.desk)).catch(() => setMyDesk(null))
   }, [user])
 
   async function createDesk() {

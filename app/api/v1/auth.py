@@ -1,10 +1,11 @@
 """Authentication endpoints: registration, login, and Web3 wallet sign-in."""
 import secrets
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,8 @@ class DexBuilderWalletRequest(BaseModel):
 class WalletChallengeRequest(BaseModel):
     address: str = Field(min_length=42, max_length=42)
     chain_id: int | None = 8453
+    domain: str | None = Field(default=None, max_length=255)
+    uri: str | None = Field(default=None, max_length=512)
 
 
 class WalletChallengeResponse(BaseModel):
@@ -137,6 +140,7 @@ async def rotate_api_key(
 @router.post("/wallet/challenge", response_model=WalletChallengeResponse)
 async def wallet_challenge(
     body: WalletChallengeRequest,
+    request: Request,
     session: AsyncSession = Depends(get_async_session),
 ):
     norm_address = body.address.strip().lower()
@@ -148,16 +152,43 @@ async def wallet_challenge(
     expires_at = now + timedelta(minutes=5)
     iso_now = now.isoformat()
 
-    message = (
-        f"dolymarket.com wants you to sign in with your Ethereum account:\n"
-        f"{body.address.strip()}\n\n"
-        f"Sign in to Dolymarket with your non-custodial crypto wallet.\n\n"
-        f"URI: https://dolymarket.com\n"
-        f"Version: 1\n"
-        f"Chain ID: {body.chain_id or 8453}\n"
-        f"Nonce: {nonce}\n"
-        f"Issued At: {iso_now}"
-    )
+    if body.domain and body.uri and "\n" not in body.domain and "\n" not in body.uri:
+        domain = body.domain.strip()
+        uri = body.uri.strip().rstrip("/")
+    else:
+        origin = (request.headers.get("origin") or "").strip().rstrip("/")
+        if origin:
+            parsed = urlparse(origin)
+            domain = parsed.netloc or "dolymarket.com"
+            uri = f"{parsed.scheme}://{domain}" if parsed.scheme and parsed.netloc else origin
+        else:
+            host = (request.headers.get("host") or request.url.netloc or "dolymarket.com").strip()
+            scheme = request.url.scheme or "http"
+            domain = host
+            uri = f"{scheme}://{host}"
+
+    if uri.startswith("https://"):
+        message = (
+            f"{domain} wants you to sign in with your Ethereum account:\n"
+            f"{body.address.strip()}\n\n"
+            f"Sign in to Dolymarket with your non-custodial crypto wallet.\n\n"
+            f"URI: {uri}\n"
+            f"Version: 1\n"
+            f"Chain ID: {body.chain_id or 8453}\n"
+            f"Nonce: {nonce}\n"
+            f"Issued At: {iso_now}"
+        )
+    else:
+        # Local HTTP dev: avoid EIP-4361 header that some wallets (e.g. Gate Wallet)
+        # strictly compare against https://<domain> and reject on http://localhost.
+        message = (
+            f"Sign in to Dolymarket\n"
+            f"Address: {body.address.strip()}\n"
+            f"Origin: {uri}\n"
+            f"Chain ID: {body.chain_id or 8453}\n"
+            f"Nonce: {nonce}\n"
+            f"Issued At: {iso_now}"
+        )
 
     challenge_record = WalletChallenge(
         address=norm_address,

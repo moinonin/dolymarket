@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_async_session
 from app.engine.clob import OrderBook
 from app.models.domain import Event, Market, OutcomeToken, TradeFill
+from app.services import oracle
 
 router = APIRouter(prefix="/api/v4/prediction", tags=["public"])
 
@@ -23,6 +24,16 @@ def _market_payload(m: Market, tokens: list[OutcomeToken] = ()) -> dict:
         "tick_size": float(m.tick_size or 0.01),
         "min_order_size": float(m.min_order_size or 5.0),
         "status": m.status,
+        "tier": getattr(m, "tier", "OFFICIAL"),
+        "creator_user_id": getattr(m, "creator_user_id", None),
+        "resolution_criteria": getattr(m, "resolution_criteria", None),
+        "oracle_feed": getattr(m, "oracle_feed", None),
+        "clarity": oracle.compute_clarity_score(
+            getattr(m, "resolution_criteria", None),
+            question=m.question,
+            oracle_feed=getattr(m, "oracle_feed", None),
+        ),
+        "liquidity_funded_usdc": float(getattr(m, "liquidity_funded_usdc", 0) or 0),
         "neg_risk": bool(m.neg_risk),
         "winning_outcome_index": m.winning_outcome_index,
         "created_at": str(m.created_at),
@@ -46,6 +57,8 @@ def _event_payload(e: Event, markets: list[Market] | None = None) -> dict:
         "category": e.category,
         "tags": e.tags or [],
         "status": e.status,
+        "tier": getattr(e, "tier", "OFFICIAL"),
+        "creator_user_id": getattr(e, "creator_user_id", None),
         "start_date": str(e.start_date) if e.start_date else None,
         "end_date": str(e.end_date) if e.end_date else None,
         "total_volume": float(e.total_volume or 0),
@@ -74,6 +87,7 @@ async def _tokens_for(session: AsyncSession, market_ids: list[str]) -> dict:
 async def list_events(
     status: str | None = None,
     category: str | None = None,
+    tier: str | None = None,
     search: str | None = None,
     sort_by: str | None = None,
     cursor: int | None = 0,
@@ -83,6 +97,8 @@ async def list_events(
     stmt = select(Event)
     if status:
         stmt = stmt.where(Event.status == status.upper())
+    if tier:
+        stmt = stmt.where(Event.tier == tier.upper())
     if category:
         stmt = stmt.where(Event.category == category)
     if search:

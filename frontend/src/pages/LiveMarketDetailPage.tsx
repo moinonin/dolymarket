@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, CheckCircle2, Eye, History, Loader2, RefreshCw, WifiOff } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Eye, History, Loader2, RefreshCw, WifiOff, X } from 'lucide-react'
 import { api, type Candle, type LiveMarket, type LiveTrade } from '../api/client'
 import { PredictionSocket, liveSocketUrl, type SocketState } from '../api/reconnectingSocket'
+import { useAuth } from '../auth/AuthProvider'
+import { useToast } from '../context/toast'
+import LiveTradeTicket from '../components/LiveTradeTicket'
 import OrderBookLadder from '../components/OrderBookLadder'
 import { Skeleton } from '../components/ui'
 
@@ -14,11 +17,14 @@ export default function LiveMarketDetailPage({
   marketId: string
   onBack: () => void
 }) {
+  const { user } = useAuth()
+  const { push } = useToast()
   const [market, setMarket] = useState<LiveMarket | null>(null)
   const [tokenId, setTokenId] = useState<string | null>(null)
   const [book, setBook] = useState<any>(null)
   const [trades, setTrades] = useState<LiveTrade[] | null>(null)
   const [candles, setCandles] = useState<Candle[] | null>(null)
+  const [openOrders, setOpenOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
@@ -118,6 +124,38 @@ export default function LiveMarketDetailPage({
   const bids = useMemo(() => levelList(book?.bids || []), [book])
   const asks = useMemo(() => levelList(book?.asks || []), [book])
   const token = market?.tokens?.find((t) => t.token_id === tokenId) || market?.tokens?.[0]
+
+  const loadOpenOrders = useCallback(async () => {
+    if (!user?.dexbuilder_wallet || !market?.condition_id) {
+      setOpenOrders([])
+      return
+    }
+    try {
+      const res = await api.getDexBuilderOrders({
+        status: 'OPEN',
+        condition_id: market.condition_id,
+        limit: 20,
+      })
+      setOpenOrders(Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [])
+    } catch {
+      // Upstream wallet may not be registered under broker yet; keep non-blocking
+      setOpenOrders([])
+    }
+  }, [user?.dexbuilder_wallet, market?.condition_id])
+
+  useEffect(() => {
+    void loadOpenOrders()
+  }, [loadOpenOrders])
+
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      await api.cancelDexBuilderOrder(orderId)
+      push(`Order ${orderId} cancelled`, 'info')
+      void loadOpenOrders()
+    } catch (err: any) {
+      push(err?.message || 'Could not cancel order', 'error')
+    }
+  }
 
   if (loading) {
     return (
@@ -277,10 +315,54 @@ export default function LiveMarketDetailPage({
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-            <History className="h-4 w-4 text-blue-400" /> Recent trades
-          </h2>
+        <div className="space-y-6">
+          {token && (
+            <LiveTradeTicket
+              market={market}
+              tokenId={token.token_id}
+              onTokenChange={setTokenId}
+              bids={bids}
+              asks={asks}
+              onPlaced={() => {
+                void loadMarket()
+                void loadOpenOrders()
+              }}
+            />
+          )}
+
+          {openOrders.length > 0 && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+              <h2 className="mb-3 text-sm font-semibold text-white">Your open orders</h2>
+              <div className="space-y-2">
+                {openOrders.map((o: any) => (
+                  <div
+                    key={o.order_id}
+                    className="flex items-center justify-between rounded-xl bg-slate-950/60 px-3 py-2 text-xs"
+                  >
+                    <div>
+                      <span className={o.side === 'BUY' ? 'font-semibold text-emerald-400' : 'font-semibold text-rose-400'}>
+                        {o.side}
+                      </span>{' '}
+                      <span className="font-mono text-white">{o.size_left ?? o.size}</span>{' '}
+                      <span className="text-slate-400">@ ${o.price}</span>
+                    </div>
+                    <button
+                      onClick={() => void handleCancelOrder(o.order_id)}
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-rose-400"
+                      title="Cancel order"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+              <History className="h-4 w-4 text-blue-400" /> Recent trades
+            </h2>
           {trades == null ? (
             <div className="flex items-center justify-center gap-2 py-8 text-xs text-slate-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading trades…
@@ -308,8 +390,9 @@ export default function LiveMarketDetailPage({
                   </span>
                 </div>
               ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

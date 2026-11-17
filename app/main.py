@@ -27,9 +27,12 @@ from app.api.v1 import auth as auth_router
 from app.api.v1 import agx as agx_router
 from app.api.v1 import collateral as collateral_router
 from app.api.v1 import desks as desks_router
+from app.api.v1 import feargreed as feargreed_router
 from app.api.v1 import oauth as oauth_router
 from app.api.v1 import passkey as passkey_router
 from app.api.v4 import admin as admin_router
+from app.api.v4 import amm as amm_router
+from app.api.v4 import community as community_router
 from app.api.v4 import orders as orders_router
 from app.api.v4 import positions as positions_router
 from app.api.v4 import public as public_router
@@ -136,12 +139,40 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+    import contextlib
+
     await init_db()
     from app.db.seed import seed
+    from app.services import agx as agx_service
+    from app.services.market_maker import mm_manager
 
     async with AsyncSessionLocal() as session:
         await seed(session)
-    yield
+        await session.commit()
+    await mm_manager.resume_enabled()
+
+    async def _epoch_rollover_loop():
+        while True:
+            await asyncio.sleep(900)
+            try:
+                async with AsyncSessionLocal() as s:
+                    distributed = await agx_service.distribute_matured_epochs(s)
+                    if distributed:
+                        await s.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+
+    rollover_task = asyncio.create_task(_epoch_rollover_loop())
+    try:
+        yield
+    finally:
+        rollover_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await rollover_task
+        await mm_manager.stop_all()
 
 
 app = FastAPI(
@@ -211,6 +242,7 @@ app.include_router(auth_router.router)
 app.include_router(agx_router.router)
 app.include_router(collateral_router.router)
 app.include_router(desks_router.router)
+app.include_router(feargreed_router.router)
 app.include_router(oauth_router.router)
 app.include_router(passkey_router.router)
 app.include_router(public_router.router)
@@ -218,6 +250,8 @@ app.include_router(orders_router.router)
 app.include_router(positions_router.router)
 app.include_router(resolution_router.router)
 app.include_router(admin_router.router)
+app.include_router(amm_router.router)
+app.include_router(community_router.router)
 app.include_router(ws_router.router)
 app.include_router(ws_live_router.router)
 app.include_router(prediction_extended_router.router)
@@ -225,6 +259,7 @@ app.include_router(prediction_live_router.router)
 app.include_router(dexbuilder_proxy_router.router)
 
 
+@app.get("/health")
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "dolymarket"}

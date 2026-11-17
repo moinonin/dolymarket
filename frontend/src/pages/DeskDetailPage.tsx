@@ -3,6 +3,7 @@ import { ArrowLeft, Loader2, ShieldCheck, TrendingUp } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import { useToast } from '../context/toast'
+import DeskMarketMakerPanel from '../components/DeskMarketMakerPanel'
 import { Skeleton } from '../components/ui'
 
 export default function DeskDetailPage({
@@ -210,6 +211,7 @@ export default function DeskDetailPage({
               </div>
             </section>
           )}
+          {(isOwner || user?.is_admin) && <DeskMarketMakerPanel deskId={deskId} />}
         </>
       ) : null}
     </div>

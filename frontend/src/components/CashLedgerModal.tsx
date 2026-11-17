@@ -16,7 +16,7 @@ export default function CashLedgerModal({
   onChanged: () => void
 }) {
   const { push } = useToast()
-  const { address, chainName, isConnected, connect } = useWallet()
+  const { address, chainName, isConnected, usdcBalance, usdcBalanceLoading, connect } = useWallet()
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const amt = parseFloat(amount)
@@ -57,14 +57,22 @@ export default function CashLedgerModal({
         {/* Connected Wallet Bar */}
         <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-[11px]">
           {isConnected && address ? (
-            <div className="flex items-center justify-between text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <Wallet className="h-3 w-3 text-emerald-400" />
-                <span>Web3 Source:</span>
-              </span>
-              <span className="font-mono text-emerald-400">
-                {address.slice(0, 6)}...{address.slice(-4)} ({chainName})
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <Wallet className="h-3 w-3 text-emerald-400" />
+                  <span>Web3 Source:</span>
+                </span>
+                <span className="font-mono text-emerald-400">
+                  {address.slice(0, 6)}...{address.slice(-4)} ({chainName})
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>On-Chain USDC:</span>
+                <span className="font-mono text-slate-200">
+                  {usdcBalanceLoading ? '…' : usdcBalance !== null ? `$${usdcBalance}` : 'N/A'}
+                </span>
+              </div>
             </div>
           ) : (
             <div className="flex items-center justify-between text-slate-400">

@@ -261,10 +261,23 @@ function EventCard({
       className="group relative flex flex-col items-stretch rounded-2xl border border-slate-800 bg-slate-900/70 p-5 text-left transition-all hover:border-emerald-500/40 hover:bg-slate-900 hover:shadow-lg"
     >
       <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
-          {event.category}
-        </span>
-        <StatusPill status={event.status} />
+        <div className="flex items-center gap-1.5">
+          <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
+            {event.category}
+          </span>
+          {event.tier === 'COMMUNITY' && (
+            <span className="rounded-md bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300">
+              Community
+            </span>
+          )}
+        </div>
+        {event.status === 'UNFUNDED' ? (
+          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+            Unfunded
+          </span>
+        ) : (
+          <StatusPill status={event.status} />
+        )}
       </div>
       <h3 className="font-semibold leading-snug text-white group-hover:text-emerald-300 transition">
         {event.title}

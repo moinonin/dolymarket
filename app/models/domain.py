@@ -105,6 +105,8 @@ class Event(Base):
     category = Column(String(50), nullable=False, index=True)
     tags = Column(JSON, default=list)
     status = Column(String(20), nullable=False, default="ACTIVE", index=True)
+    tier = Column(String(20), nullable=False, default="OFFICIAL", index=True)
+    creator_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     start_date = Column(DateTime(timezone=True), nullable=True)
     end_date = Column(DateTime(timezone=True), nullable=True)
     total_volume = Column(Numeric(18, 4), default=0)
@@ -124,6 +126,11 @@ class Market(Base):
     tick_size = Column(Numeric(6, 4), default=0.01)
     min_order_size = Column(Numeric(12, 4), default=5.0)
     status = Column(String(20), nullable=False, default="ACTIVE", index=True)
+    tier = Column(String(20), nullable=False, default="OFFICIAL", index=True)
+    creator_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    resolution_criteria = Column(Text, nullable=True)
+    oracle_feed = Column(String(120), nullable=True)
+    liquidity_funded_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
     neg_risk = Column(Boolean, default=False)
     winning_outcome_index = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now_utc)
@@ -166,7 +173,10 @@ class Order(Base):
     post_only = Column(Boolean, default=False)
     desk_id = Column(String(36), ForeignKey("desks.id"), nullable=True, index=True)
     copy_source_fill_id = Column(
-        String(36), ForeignKey("trade_fills.id"), nullable=True, index=True
+        String(36),
+        ForeignKey("trade_fills.id", use_alter=True, name="fk_orders_copy_source_fill_id"),
+        nullable=True,
+        index=True,
     )
     created_at = Column(DateTime(timezone=True), default=_now_utc, index=True)
 
@@ -241,6 +251,7 @@ class OracleDispute(Base):
     bond_amount = Column(Numeric(18, 4), nullable=False)
     dispute_deadline = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(20), default="PROPOSED", index=True)
+    evidence_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now_utc)
 
 
@@ -565,3 +576,55 @@ class AgxLedger(Base):
 User.agx_balance = relationship(
     "AgxBalance", uselist=False, cascade="all, delete-orphan"
 )
+
+
+class DeskMarketMakerConfig(Base):
+    """Persisted market-maker configuration per (Desk, Token) for auto-resume on boot."""
+
+    __tablename__ = "desk_mm_configs"
+
+    desk_id = Column(String(36), ForeignKey("desks.id"), primary_key=True)
+    token_id = Column(String(100), primary_key=True)
+    owner_user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    market_id = Column(String(64), nullable=False)
+    base_half_spread = Column(Numeric(10, 4), nullable=False, default=Decimal("0.0200"))
+    quote_size = Column(Numeric(18, 4), nullable=False, default=Decimal("10.0000"))
+    max_inventory = Column(Numeric(18, 4), nullable=False, default=Decimal("100.0000"))
+    max_usdc_exposure = Column(Numeric(18, 4), nullable=False, default=Decimal("500.0000"))
+    daily_loss_limit_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("50.0000"))
+    expiry_pull_minutes = Column(Integer, nullable=False, default=15)
+    tick_size = Column(Numeric(10, 4), nullable=False, default=Decimal("0.0100"))
+    crypto_skew = Column(Boolean, nullable=False, default=True)
+    dry_run = Column(Boolean, nullable=False, default=True)
+    interval_s = Column(Numeric(8, 2), nullable=False, default=Decimal("2.00"))
+    enabled = Column(Boolean, nullable=False, default=False, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now_utc, onupdate=_now_utc)
+
+
+class AmmPool(Base):
+    """LMSR Automated Market Maker liquidity pool per binary Market."""
+
+    __tablename__ = "amm_pools"
+
+    market_id = Column(String(36), ForeignKey("markets.id"), primary_key=True)
+    b = Column(Numeric(18, 6), nullable=False)
+    q_yes = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    q_no = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    pool_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    fees_collected_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    total_lp_shares = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    fee_bps = Column(Integer, nullable=False, default=50)
+    created_at = Column(DateTime(timezone=True), default=_now_utc)
+
+
+class AmmLpPosition(Base):
+    """Individual LP share balance in an AmmPool."""
+
+    __tablename__ = "amm_lp_positions"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    market_id = Column(String(36), ForeignKey("amm_pools.market_id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    lp_shares = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    deposited_usdc = Column(Numeric(18, 4), nullable=False, default=Decimal("0"))
+    created_at = Column(DateTime(timezone=True), default=_now_utc)

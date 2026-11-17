@@ -400,9 +400,13 @@ class MatchingEngine:
         try:
             from app.services import agx as agx_service
 
-            # Fee revenue accrues to the open 24-hour reward epoch. A savepoint
-            # keeps accounting failures from poisoning the fill transaction.
-            async with session.begin_nested():
+            # Fee revenue accrues to the open 24-hour reward epoch. Use a
+            # savepoint when supported (SQLite/Postgres) so accounting failures
+            # cannot poison the fill transaction; call directly on libSQL/Turso.
+            if hasattr(session, "begin_nested"):
+                async with session.begin_nested():
+                    await agx_service.record_fee(session, taker_fee + maker_fee)
+            else:
                 await agx_service.record_fee(session, taker_fee + maker_fee)
         except Exception:  # pragma: no cover - accounting is best effort here
             pass

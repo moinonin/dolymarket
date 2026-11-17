@@ -32,8 +32,9 @@ import { useToast } from '../context/toast'
 import { useWallet } from '../context/WalletContext'
 import { WalletConnectModal } from '../components/WalletConnectModal'
 import CashLedgerModal from '../components/CashLedgerModal'
+import DexBuilderBrokerPanel from '../components/DexBuilderBrokerPanel'
 
-type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger' | 'security'
+type Tab = 'positions' | 'settled' | 'orders' | 'trades' | 'ledger' | 'dexbuilder' | 'security'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'positions', label: 'Positions' },
@@ -41,6 +42,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'orders', label: 'Open Orders' },
   { key: 'trades', label: 'Trade history' },
   { key: 'ledger', label: 'Wallet' },
+  { key: 'dexbuilder', label: 'Broker Account' },
   { key: 'security', label: 'Security' },
 ]
 
@@ -313,6 +315,7 @@ export default function PortfolioPage({
         )}
         {tab === 'trades' && <TradesTable fills={tradeFills} loading={loading} />}
         {tab === 'ledger' && <LedgerTable entries={ledger} loading={loading} />}
+        {tab === 'dexbuilder' && <DexBuilderBrokerPanel />}
         {tab === 'security' && <SecurityPanel />}
       </div>
 
@@ -421,6 +424,57 @@ function PositionsTable({
     }
   }
 
+  async function reversePosition(p: Position) {
+    setClosing(p.position_id)
+    try {
+      const market = await api.getMarket(p.market_id)
+      const opposite = (market.tokens || []).find((t) => t.token_id !== p.token_id)
+      if (!opposite) throw new Error('Opposite outcome token not found')
+      await api.placeSmartOrder({
+        market_id: p.market_id,
+        token_id: p.token_id,
+        side: 'SELL',
+        shares: p.shares,
+      })
+      await api.placeSmartOrder({
+        market_id: p.market_id,
+        token_id: opposite.token_id,
+        side: 'BUY',
+        shares: p.shares,
+      })
+      push(`Reversed ${p.shares.toFixed(1)} sh -> ${opposite.symbol}`, 'info')
+      onChanged()
+    } catch (err: any) {
+      push(err.message || 'Reverse failed', 'error')
+    } finally {
+      setClosing(null)
+    }
+  }
+
+  async function placeTakeProfit(p: Position) {
+    const cur = p.current_price ?? p.avg_entry_price
+    const tpPrice = Math.min(0.99, Math.max(0.01, Math.round(cur * 1.2 * 100) / 100))
+    setClosing(p.position_id)
+    try {
+      await api.submitOrder({
+        market_id: p.market_id,
+        token_id: p.token_id,
+        side: 'SELL',
+        type: 'LIMIT',
+        price: tpPrice,
+        amount: p.shares,
+        time_in_force: 'GTC',
+        post_only: false,
+      })
+      push(`Take-Profit SELL ${p.shares.toFixed(1)} sh @ $${tpPrice.toFixed(2)} resting (GTC)`, 'info')
+      onChanged()
+    } catch (err: any) {
+      push(err.message || 'Take-Profit failed', 'error')
+    } finally {
+      setClosing(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-2">
@@ -449,6 +503,7 @@ function PositionsTable({
             <Th>Token</Th>
             <Th right>Shares</Th>
             <Th right>Entry</Th>
+            <Th right>Cost Basis</Th>
             <Th right>Current</Th>
             <Th right>Value</Th>
             <Th right>Unrealized PnL</Th>
@@ -458,9 +513,10 @@ function PositionsTable({
         <tbody className="divide-y divide-slate-800/70">
           {positions.map((p) => {
             const cur = p.current_price ?? p.avg_entry_price
+            const costBasis = p.shares * p.avg_entry_price
             const value = p.shares * cur
             const pnl = p.unrealized_pnl ?? (cur - p.avg_entry_price) * p.shares
-            const pnlPct = p.avg_entry_price > 0 ? (pnl / (p.avg_entry_price * p.shares)) * 100 : 0
+            const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0
             return (
               <tr key={p.position_id} className="transition hover:bg-slate-900/50">
                 <Td>
@@ -475,6 +531,7 @@ function PositionsTable({
                 <Td><TokenChip symbol={p.outcome_symbol || '—'} /></Td>
                 <Td right mono>{p.shares.toFixed(1)}</Td>
                 <Td right mono>¢{(p.avg_entry_price * 100).toFixed(1)}</Td>
+                <Td right mono>${costBasis.toFixed(2)}</Td>
                 <Td right mono>{cur != null ? `¢${(cur * 100).toFixed(1)}` : '—'}</Td>
                 <Td right mono>${value.toFixed(2)}</Td>
                 <Td right>
@@ -483,13 +540,31 @@ function PositionsTable({
                   </span>
                 </Td>
                 <Td right>
-                  <button
-                    disabled={closing === p.position_id}
-                    onClick={() => closePosition(p)}
-                    className="rounded-md border border-rose-500/40 px-2.5 py-1 text-[10px] font-medium text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40"
-                  >
-                    {closing === p.position_id ? 'Closing…' : 'Sell / Close'}
-                  </button>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      disabled={closing === p.position_id}
+                      onClick={() => placeTakeProfit(p)}
+                      title="Place GTC Take-Profit limit sell at +20%"
+                      className="rounded-md border border-emerald-500/40 px-2 py-1 text-[10px] font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
+                    >
+                      TP +20%
+                    </button>
+                    <button
+                      disabled={closing === p.position_id}
+                      onClick={() => reversePosition(p)}
+                      title="Close and flip to opposite outcome via Smart Route"
+                      className="rounded-md border border-blue-500/40 px-2 py-1 text-[10px] font-medium text-blue-300 transition hover:bg-blue-500/10 disabled:opacity-40"
+                    >
+                      Reverse
+                    </button>
+                    <button
+                      disabled={closing === p.position_id}
+                      onClick={() => closePosition(p)}
+                      className="rounded-md border border-rose-500/40 px-2.5 py-1 text-[10px] font-medium text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40"
+                    >
+                      {closing === p.position_id ? 'Closing…' : 'Close'}
+                    </button>
+                  </div>
                 </Td>
               </tr>
             )

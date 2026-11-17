@@ -233,3 +233,128 @@ async def test_auth_route_never_leaks_the_credentials(client):
     assert body["upstream"]["label"] == "INVALID_KEY"
     assert API_KEY not in response.text
     assert API_SECRET not in response.text
+
+
+async def test_place_order_signs_body_and_sends_wallet():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"order_id": "ord-1", "status": "ACCEPTED"})
+
+    client = make_client(handler)
+    res = await client.place_order(
+        {"token_id": "tok-1", "side": "BUY", "price": "0.52", "size": "10"},
+        user_wallet="0xabc123",
+    )
+    assert res["order_id"] == "ord-1"
+    req = captured[0]
+    assert req.method == "POST"
+    assert req.url.path == "/api/v4/broker/prediction/orders"
+    assert req.headers["Content-Type"] == "application/json"
+    assert req.headers["X-User-Wallet-Address"] == "0xabc123"
+    rebuilt = canonical_signature_message(
+        req.method,
+        req.url.path,
+        "",
+        req.content.decode(),
+        req.headers["Timestamp"],
+    )
+    assert sign_payload(API_SECRET, rebuilt) == req.headers["SIGN"]
+
+
+async def test_get_and_cancel_orders_use_broker_routes():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    client = make_client(handler)
+    await client.get_order("ord-9", user_wallet="0xabc")
+    await client.cancel_order("ord-9", user_wallet="0xabc")
+    await client.cancel_orders_by_condition("cond-1", user_wallet="0xabc")
+
+    assert [(r.method, r.url.path, r.url.query.decode()) for r in captured] == [
+        ("GET", "/api/v4/broker/prediction/orders/ord-9", ""),
+        ("DELETE", "/api/v4/broker/prediction/orders/ord-9", ""),
+        ("DELETE", "/api/v4/broker/prediction/orders", "condition_id=cond-1"),
+    ]
+    for r in captured:
+        assert r.headers["X-User-Wallet-Address"] == "0xabc"
+
+
+async def test_proxy_place_order_requires_wallet_and_forwards(client):
+    from app.api.v4.dexbuilder import proxy
+
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "broker_trader@example.com", "password": "strong-password-123"},
+    )
+    assert reg.status_code in (200, 201)
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    captured: list[dict] = []
+
+    class FakeClient:
+        enabled = True
+
+        async def place_order(self, payload, user_wallet=None):
+            captured.append({"payload": payload, "wallet": user_wallet})
+            return {"order_id": "ord-77", "status": "ACCEPTED"}
+
+    app = client._transport.app
+    app.dependency_overrides[proxy.get_client] = lambda: FakeClient()
+    try:
+        r_no_wallet = await client.post(
+            "/api/v4/dexbuilder/orders",
+            json={"token_id": "tok-1", "side": "BUY", "price": "0.50", "size": "5"},
+            headers=headers,
+        )
+        assert r_no_wallet.status_code == 400
+        assert r_no_wallet.json()["detail"] == "DEXBUILDER_WALLET_NOT_CONFIGURED"
+
+        r_set = await client.post(
+            "/api/v1/auth/dexbuilder-wallet",
+            json={"wallet_address": "0x1111111111111111111111111111111111111111"},
+            headers=headers,
+        )
+        assert r_set.status_code == 200
+
+        r_ok = await client.post(
+            "/api/v4/dexbuilder/orders",
+            json={"token_id": "tok-1", "side": "BUY", "price": "0.50", "size": "5"},
+            headers=headers,
+        )
+        assert r_ok.status_code == 200
+        assert r_ok.json()["order_id"] == "ord-77"
+        assert captured[0]["wallet"] == "0x1111111111111111111111111111111111111111"
+        assert captured[0]["payload"]["token_id"] == "tok-1"
+    finally:
+        app.dependency_overrides.clear()
+
+
+async def test_account_book_claims_and_platform_history_paths():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    client = make_client(handler)
+    await client.get_account_book(user_wallet="0xabc", limit=10)
+    await client.get_claimable(user_wallet="0xabc")
+    await client.claim_winnings({"condition_id": "cond-1"}, user_wallet="0xabc")
+    await client.get_deposit_history(user_wallet="0xabc", page=1, page_size=20)
+    await client.get_withdraw_history(user_wallet="0xabc", page=1, page_size=20)
+
+    assert [(r.method, r.url.path, r.url.query.decode()) for r in captured] == [
+        ("GET", "/api/v4/broker/prediction/account_book", "limit=10"),
+        ("GET", "/api/v4/broker/prediction/claims/available", ""),
+        ("POST", "/api/v4/broker/prediction/claims", ""),
+        ("GET", "/api/v4/dexbuilder/deposit/history", "page=1&page_size=20"),
+        ("GET", "/api/v4/dexbuilder/withdraw/history", "page=1&page_size=20"),
+    ]
+    for r in captured:
+        assert r.headers["X-User-Wallet-Address"] == "0xabc"

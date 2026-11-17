@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import time
 from decimal import Decimal
 from typing import Any
@@ -122,6 +123,7 @@ class DexBuilderConfig(BaseSettings):
     DEXBUILDER_API_BASE: str = DEFAULT_BASE
     DEXBUILDER_API_KEY: str = ""
     DEXBUILDER_API_SECRET: str = ""
+    DEXBUILDER_BROKER_ID: str = ""
     DEXBUILDER_WS_URL: str = DEFAULT_WS
     DEXBUILDER_TIMEOUT: float = 10.0
 
@@ -211,6 +213,8 @@ class DexBuilderClient:
         if not self.public_reads:
             raise RuntimeError("DexBuilder API base is not configured")
         headers = {"Accept": "application/json"}
+        if body:
+            headers["Content-Type"] = "application/json"
         query = _encode_query(params)
         headers.update(self._sign(method, path, body, query))
         if user_wallet:
@@ -264,8 +268,7 @@ class DexBuilderClient:
         try:
             await self._request(
                 "GET",
-                "/api/v4/prediction/usertrades",
-                params={"limit": 1},
+                "/api/v4/dexbuilder/assets",
             )
         except DexBuilderAuthError as exc:
             result["upstream"] = {
@@ -407,8 +410,152 @@ class DexBuilderClient:
     async def get_user_trades(self, user_wallet: str | None = None):
         return await self._request("GET", "/api/v4/broker/prediction/usertrades", user_wallet=user_wallet)
 
-    async def get_orders(self, user_wallet: str | None = None):
-        return await self._request("GET", "/api/v4/broker/prediction/orders", user_wallet=user_wallet)
+    async def get_orders(
+        self,
+        user_wallet: str | None = None,
+        *,
+        status: str | None = None,
+        condition_id: str | None = None,
+        event_id: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ):
+        params: dict[str, Any] = {}
+        if status:
+            params["status"] = status
+        if condition_id:
+            params["condition_id"] = condition_id
+        if event_id:
+            params["event_id"] = event_id
+        if limit is not None:
+            params["limit"] = limit
+        if cursor:
+            params["cursor"] = cursor
+        return await self._request(
+            "GET",
+            "/api/v4/broker/prediction/orders",
+            params=params or None,
+            user_wallet=user_wallet,
+        )
+
+    async def get_order(self, order_id: str, user_wallet: str | None = None):
+        return await self._request(
+            "GET",
+            f"/api/v4/broker/prediction/orders/{order_id}",
+            user_wallet=user_wallet,
+        )
+
+    async def place_order(self, payload: dict[str, Any], user_wallet: str | None = None):
+        body = json.dumps(payload, separators=(",", ":"))
+        return await self._request(
+            "POST",
+            "/api/v4/broker/prediction/orders",
+            body=body,
+            user_wallet=user_wallet,
+        )
+
+    async def cancel_order(self, order_id: str, user_wallet: str | None = None):
+        return await self._request(
+            "DELETE",
+            f"/api/v4/broker/prediction/orders/{order_id}",
+            user_wallet=user_wallet,
+        )
+
+    async def cancel_orders_by_condition(self, condition_id: str, user_wallet: str | None = None):
+        return await self._request(
+            "DELETE",
+            "/api/v4/broker/prediction/orders",
+            params={"condition_id": condition_id},
+            user_wallet=user_wallet,
+        )
+
+    async def get_account_book(
+        self,
+        user_wallet: str | None = None,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ):
+        params: dict[str, Any] = {}
+        if limit is not None:
+            params["limit"] = limit
+        if cursor:
+            params["cursor"] = cursor
+        return await self._request(
+            "GET",
+            "/api/v4/broker/prediction/account_book",
+            params=params or None,
+            user_wallet=user_wallet,
+        )
+
+    async def get_claimable(self, user_wallet: str | None = None):
+        return await self._request(
+            "GET",
+            "/api/v4/broker/prediction/claims/available",
+            user_wallet=user_wallet,
+        )
+
+    async def claim_winnings(self, payload: dict[str, Any], user_wallet: str | None = None):
+        body = json.dumps(payload, separators=(",", ":"))
+        return await self._request(
+            "POST",
+            "/api/v4/broker/prediction/claims",
+            body=body,
+            user_wallet=user_wallet,
+        )
+
+    async def get_platform_assets(self):
+        return await self._request("GET", "/api/v4/dexbuilder/assets")
+
+    async def get_user_info(self, user_wallet: str | None = None):
+        return await self._request("GET", "/api/v4/dexbuilder/user/info", user_wallet=user_wallet)
+
+    async def get_deposit_history(
+        self, user_wallet: str | None = None, *, page: int = 1, page_size: int = 20
+    ):
+        return await self._request(
+            "GET",
+            "/api/v4/dexbuilder/deposit/history",
+            params={"page": page, "page_size": page_size},
+            user_wallet=user_wallet,
+        )
+
+    async def get_withdraw_history(
+        self, user_wallet: str | None = None, *, page: int = 1, page_size: int = 20
+    ):
+        return await self._request(
+            "GET",
+            "/api/v4/dexbuilder/withdraw/history",
+            params={"page": page, "page_size": page_size},
+            user_wallet=user_wallet,
+        )
+
+    async def create_deposit_sign_data(self, payload: dict[str, Any], user_wallet: str | None = None):
+        body = json.dumps(payload, separators=(",", ":"))
+        return await self._request(
+            "POST",
+            "/api/v4/dexbuilder/deposit/sign_data",
+            body=body,
+            user_wallet=user_wallet,
+        )
+
+    async def create_withdraw_sign_data(self, payload: dict[str, Any], user_wallet: str | None = None):
+        body = json.dumps(payload, separators=(",", ":"))
+        return await self._request(
+            "POST",
+            "/api/v4/dexbuilder/withdraw/sign_data",
+            body=body,
+            user_wallet=user_wallet,
+        )
+
+    async def submit_withdraw(self, payload: dict[str, Any], user_wallet: str | None = None):
+        body = json.dumps(payload, separators=(",", ":"))
+        return await self._request(
+            "POST",
+            "/api/v4/dexbuilder/withdraw/submit",
+            body=body,
+            user_wallet=user_wallet,
+        )
 
     def decimal(self, value) -> Decimal:
         return Decimal(str(value))

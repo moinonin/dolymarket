@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-sqlite:
+    name: Backend (SQLite + Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Static check (Ruff F821)
+        run: ruff check --select F821 app/ tests/
+      - name: Run pytest (SQLite)
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          JWT_SECRET: ci-test-secret-key-1234567890abcdef
+          ALLOW_INSECURE_SECRETS: "1"
+        run: pytest -q
+
+  backend-postgres:
+    name: Backend (Postgres asyncpg)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dolymarket_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d dolymarket_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Verify Alembic migrations on Postgres
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dolymarket_test
+          JWT_SECRET: ci-test-secret-key-1234567890abcdef
+          ALLOW_INSECURE_SECRETS: "1"
+        run: alembic upgrade head
+      - name: Run pytest (Postgres asyncpg)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/dolymarket_test
+          JWT_SECRET: ci-test-secret-key-1234567890abcdef
+          ALLOW_INSECURE_SECRETS: "1"
+        run: pytest -q
+
+  frontend-build:
+    name: Frontend (TypeScript + Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build production bundle
+        run: npm run build
