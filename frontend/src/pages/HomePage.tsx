@@ -1201,14 +1201,17 @@ function NewsVisualMarquee({
   topicImages: Record<string, string>
   onOpen: (slug: string) => void
 }) {
-  const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [brokenImgs, setBrokenImgs] = useState<Record<string, boolean>>({})
-  const sectionRef = useRef<HTMLElement | null>(null)
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
-  const didSwipeRef = useRef(false)
-  const wheelAccumRef = useRef(0)
-  const wheelLockUntilRef = useRef(0)
+  const trackRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ active: boolean; startX: number; startScroll: number; moved: boolean }>({
+    active: false,
+    startX: 0,
+    startScroll: 0,
+    moved: false,
+  })
+  const resumeTimerRef = useRef<number | null>(null)
+  const fractionalPxRef = useRef(0)
 
   const slides = useMemo(() => {
     const evBySlug = new Map(events.map((e) => [e.slug, e]))
@@ -1250,106 +1253,106 @@ function NewsVisualMarquee({
   }, [events, newsSlides, tickers, topicImages, brokenImgs])
 
   const total = slides.length
+  const loopedSlides = useMemo(
+    () => (total > 1 ? [...slides, ...slides] : slides),
+    [slides, total]
+  )
 
+  // Reset scroll cleanly when filtered slide list changes
   useEffect(() => {
-    setIndex(0)
+    if (trackRef.current) {
+      trackRef.current.scrollLeft = 0
+      fractionalPxRef.current = 0
+    }
   }, [total])
 
+  // Continuous smooth left-sliding motion at a predictable constant speed (36 px/sec)
   useEffect(() => {
     if (paused || total <= 1) return
-    const timer = window.setInterval(() => {
-      setIndex((i) => (i + 1) % total)
-    }, 4500)
-    return () => window.clearInterval(timer)
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+    let rafId = 0
+    let lastTs = performance.now()
+    const SPEED_PX_PER_SEC = 36
+
+    const step = (now: number) => {
+      const el = trackRef.current
+      const dt = Math.min(0.05, Math.max(0, (now - lastTs) / 1000))
+      lastTs = now
+      if (el && !dragRef.current.active) {
+        const half = el.scrollWidth / 2
+        if (half > 0) {
+          fractionalPxRef.current += SPEED_PX_PER_SEC * dt
+          const whole = Math.floor(fractionalPxRef.current)
+          if (whole >= 1) {
+            fractionalPxRef.current -= whole
+            let nextLeft = el.scrollLeft + whole
+            if (nextLeft >= half) nextLeft -= half
+            el.scrollLeft = nextLeft
+          }
+        }
+      }
+      rafId = window.requestAnimationFrame(step)
+    }
+
+    rafId = window.requestAnimationFrame(step)
+    return () => window.cancelAnimationFrame(rafId)
   }, [paused, total])
 
-  // Non-passive horizontal wheel listener for two-finger touchpad swiping (blocks macOS back-nav)
+  // Keep seamless wrap when user swipes manually on touchpad or mobile
   useEffect(() => {
-    const el = sectionRef.current
+    const el = trackRef.current
     if (!el || total <= 1) return
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || Math.abs(e.deltaX) < 4) return
-      e.preventDefault()
-      const now = performance.now()
-      if (now < wheelLockUntilRef.current) {
-        wheelAccumRef.current = 0
-        return
-      }
-      wheelAccumRef.current += e.deltaX
-      if (Math.abs(wheelAccumRef.current) >= 45) {
-        const dir = wheelAccumRef.current > 0 ? 1 : -1
-        wheelAccumRef.current = 0
-        wheelLockUntilRef.current = now + 320
-        setIndex((i) => (i + dir + total) % total)
+    const onScroll = () => {
+      const half = el.scrollWidth / 2
+      if (half <= 0) return
+      if (el.scrollLeft >= half) {
+        el.scrollLeft -= half
+      } else if (el.scrollLeft <= 0) {
+        el.scrollLeft += half
       }
     }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
   }, [total])
+
+  useEffect(() => {
+    return () => {
+      if (resumeTimerRef.current != null) window.clearTimeout(resumeTimerRef.current)
+    }
+  }, [])
 
   if (total === 0) return null
 
-  const prev = () => setIndex((i) => (i - 1 + total) % total)
-  const next = () => setIndex((i) => (i + 1) % total)
-  const ordered = Array.from({ length: total }, (_, offset) => slides[(index + offset) % total])
+  const pauseTemporarily = (ms = 1400) => {
+    setPaused(true)
+    if (resumeTimerRef.current != null) window.clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = window.setTimeout(() => setPaused(false), ms)
+  }
 
-  const finishSwipe = (endX: number, endY: number) => {
-    const start = swipeStartRef.current
-    swipeStartRef.current = null
-    if (!start || total <= 1) return
-    const dx = endX - start.x
-    const dy = endY - start.y
-    if (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy)) {
-      didSwipeRef.current = true
-      if (dx < 0) next()
-      else prev()
-      window.setTimeout(() => {
-        didSwipeRef.current = false
-      }, 250)
-    }
+  const nudge = (dir: -1 | 1) => {
+    const el = trackRef.current
+    if (!el) return
+    pauseTemporarily(1800)
+    const stepPx = Math.max(280, Math.round(el.clientWidth * 0.45))
+    el.scrollBy({ left: dir * stepPx, behavior: 'smooth' })
   }
 
   return (
     <section
-      ref={sectionRef}
       tabIndex={0}
       aria-label="News and active markets carousel"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => {
+        dragRef.current.active = false
         setPaused(false)
-        swipeStartRef.current = null
       }}
       onKeyDown={(e) => {
-        if (e.key === 'ArrowRight') next()
-        else if (e.key === 'ArrowLeft') prev()
+        if (e.key === 'ArrowRight') nudge(1)
+        else if (e.key === 'ArrowLeft') nudge(-1)
       }}
-      onTouchStart={(e) => {
-        const t = e.touches[0]
-        if (t) {
-          setPaused(true)
-          swipeStartRef.current = { x: t.clientX, y: t.clientY }
-        }
-      }}
-      onTouchEnd={(e) => {
-        setPaused(false)
-        const t = e.changedTouches[0]
-        if (t) finishSwipe(t.clientX, t.clientY)
-      }}
-      onTouchCancel={() => {
-        setPaused(false)
-        swipeStartRef.current = null
-      }}
-      onPointerDown={(e) => {
-        if (e.pointerType === 'mouse' && e.button === 0) {
-          swipeStartRef.current = { x: e.clientX, y: e.clientY }
-        }
-      }}
-      onPointerUp={(e) => {
-        if (e.pointerType === 'mouse') {
-          finishSwipe(e.clientX, e.clientY)
-        }
-      }}
-      className="relative mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 p-3 touch-pan-y overscroll-x-contain select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
+      className="relative mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 p-3 select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
     >
       <div className="relative">
         {total > 1 && (
@@ -1359,9 +1362,9 @@ function NewsVisualMarquee({
               aria-label="Slide left"
               onClick={(e) => {
                 e.stopPropagation()
-                prev()
+                nudge(-1)
               }}
-              className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/80 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
+              className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/85 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -1370,27 +1373,58 @@ function NewsVisualMarquee({
               aria-label="Slide right"
               onClick={(e) => {
                 e.stopPropagation()
-                next()
+                nudge(1)
               }}
-              className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/80 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
+              className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/85 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {ordered.slice(0, 4).map((slide, slotIdx) => (
+        <div
+          ref={trackRef}
+          onWheel={(e) => {
+            if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) pauseTemporarily(1200)
+          }}
+          onTouchStart={() => setPaused(true)}
+          onTouchEnd={() => pauseTemporarily(1200)}
+          onPointerDown={(e) => {
+            if (e.pointerType !== 'mouse' || e.button !== 0 || !trackRef.current) return
+            dragRef.current = {
+              active: true,
+              startX: e.clientX,
+              startScroll: trackRef.current.scrollLeft,
+              moved: false,
+            }
+          }}
+          onPointerMove={(e) => {
+            if (!dragRef.current.active || !trackRef.current) return
+            const dx = e.clientX - dragRef.current.startX
+            if (Math.abs(dx) > 6) dragRef.current.moved = true
+            trackRef.current.scrollLeft = dragRef.current.startScroll - dx
+          }}
+          onPointerUp={() => {
+            if (!dragRef.current.active) return
+            const wasMoved = dragRef.current.moved
+            dragRef.current.active = false
+            if (wasMoved) {
+              window.setTimeout(() => {
+                dragRef.current.moved = false
+              }, 150)
+            }
+          }}
+          className="flex gap-3 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden cursor-grab active:cursor-grabbing"
+        >
+        {loopedSlides.map((slide, idx) => (
           <button
-            key={slide.key}
+            key={`${slide.key}-${idx}`}
             type="button"
             onClick={() => {
-              if (didSwipeRef.current) return
+              if (dragRef.current.moved) return
               onOpen(slide.slug)
             }}
-            className={`group relative flex aspect-[16/10] min-h-[240px] w-full flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[255px] lg:min-h-[270px] ${
-              slotIdx === 3 ? 'hidden 2xl:flex' : ''
-            }`}
+            className="group relative flex aspect-[16/10] min-h-[240px] w-[86%] shrink-0 flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[255px] sm:w-[48%] lg:min-h-[270px] lg:w-[32.2%] 2xl:w-[24.2%]"
           >
             {slide.image ? (
               <img
@@ -1398,6 +1432,7 @@ function NewsVisualMarquee({
                 alt={slide.headline}
                 loading="eager"
                 decoding="async"
+                draggable={false}
                 onError={() => setBrokenImgs((b) => ({ ...b, [slide.key]: true }))}
                 className="absolute inset-0 h-full w-full object-cover object-center opacity-100 transition duration-500 group-hover:scale-105"
               />
@@ -1443,22 +1478,6 @@ function NewsVisualMarquee({
         ))}
         </div>
       </div>
-
-      {total > 1 && (
-        <div className="mt-2.5 flex justify-center gap-1.5">
-          {slides.map((s, i) => (
-            <button
-              key={s.key}
-              type="button"
-              aria-label={`Slide ${i + 1}`}
-              onClick={() => setIndex(i)}
-              className={`h-1.5 rounded-full transition-all ${
-                i === index ? 'w-5 bg-emerald-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
-              }`}
-            />
-          ))}
-        </div>
-      )}
     </section>
   )
 }
