@@ -116,7 +116,18 @@ def _tokens(text: str) -> set[str]:
     return {w for w in _WORD_RE.findall((text or "").lower()) if w not in _STOPWORDS}
 
 
+def _upgrade_image_res(url: str) -> str:
+    """Request HD variants from known newsroom CDNs (e.g. BBC 240px -> 976px)."""
+    return re.sub(
+        r"(https://ichef\.bbci\.co\.uk/(?:ace/standard|news)/)\d+/",
+        r"\g<1>976/",
+        url,
+    )
+
+
 def _extract_rss_image(item: ET.Element) -> str | None:
+    best_url: str | None = None
+    best_width = -1
     for elem in item.iter():
         tag = elem.tag.lower()
         if tag.endswith("content") or tag.endswith("thumbnail") or tag.endswith("enclosure"):
@@ -125,8 +136,16 @@ def _extract_rss_image(item: ET.Element) -> str | None:
             if url and (not mtype or mtype.startswith("image/") or tag.endswith("thumbnail")):
                 valid = _valid_https_image(url)
                 if valid:
-                    return valid
-    return None
+                    try:
+                        w = int(elem.attrib.get("width") or 0)
+                    except ValueError:
+                        w = 0
+                    # Prefer media:content over thumbnail when width is unspecified
+                    score = w if w > 0 else (500 if tag.endswith("content") else 240)
+                    if score > best_width:
+                        best_width = score
+                        best_url = _upgrade_image_res(valid)
+    return best_url
 
 
 def parse_rss_xml(xml_bytes: bytes, source_name: str, default_category: str) -> list[dict[str, Any]]:

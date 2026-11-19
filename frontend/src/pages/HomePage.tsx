@@ -1374,12 +1374,12 @@ function NewsVisualMarquee({
                 alt={slide.headline}
                 loading="lazy"
                 onError={() => setBrokenImgs((b) => ({ ...b, [slide.key]: true }))}
-                className="absolute inset-0 h-full w-full object-cover object-top opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85"
+                className="absolute inset-0 h-full w-full object-cover object-center opacity-100 transition duration-500 group-hover:scale-105"
               />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-blue-950/80" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/65 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/25 via-45% to-transparent" />
 
             <div className="relative z-10 p-4">
               <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
