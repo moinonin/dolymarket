@@ -85,6 +85,11 @@ async def propose_resolution(
             outcome_label,
             source_url=source_url,
             evidence_text=evidence_text,
+            resolution_criteria=market.resolution_criteria,
+            oracle_threshold=(
+                float(market.oracle_threshold) if market.oracle_threshold is not None else None
+            ),
+            oracle_comparator=market.oracle_comparator,
         )
         if verdict["verdict"] == "CONTRADICTS" and float(verdict["confidence"]) >= 0.85:
             raise HTTPException(

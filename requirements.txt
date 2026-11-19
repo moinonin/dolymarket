@@ -17,6 +17,11 @@ python-multipart>=0.0.9
 # WebAuthn / passkey ceremonies (server side).
 webauthn>=2.7,<3.0
 
+# Offline oracle-s1 evidence verifier (MobileBERT INT8 ONNX + NumPy fallback).
+numpy>=1.26
+onnxruntime>=1.19
+tokenizers>=0.19
+
 # Test dependencies.
 pytest>=8.0
 pytest-asyncio>=0.23

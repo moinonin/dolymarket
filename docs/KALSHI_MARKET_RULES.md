@@ -1,0 +1,3 @@
+Resolves Yes if Take-Two Interactive Software, Inc. (including Rockstar Games) publicly reports before January 1, 2027 that Grand Theft Auto VI has reached at least 36 million units sold-in.
+Outcome verified from MS Now, ABC, Fox News, Associated Press, BBC, The Wall Street Journal, Bloomberg News, CNBC, CBS, NBC, Take-Two Interactive Software, Inc. Investor Events, The Washington Post, CNN, The New York Times, and Reuters.
+If there is no data for the Underlying published by a Source Agency by the Expiration Date, all markets will resolve to No, unless a "No data" strike is listed, in which case the "No data" strike will resolve Yes and all others will resolve No.

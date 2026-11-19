@@ -100,8 +100,32 @@ async def verify_resolution_evidence(
     *,
     source_url: str | None = None,
     evidence_text: str | None = None,
+    resolution_criteria: str | None = None,
+    oracle_threshold: float | None = None,
+    oracle_comparator: str | None = None,
 ) -> dict[str, Any]:
-    """Verify whether cited evidence supports or contradicts a proposed resolution."""
+    """Verify whether cited evidence supports or contradicts a proposed resolution.
+
+    Enforces Kalshi-style Source Agency domain whitelisting when `resolution_criteria`
+    declares allowed sources (`Outcome verified from ...`).
+    """
+    from app.services.oracle_evidence_s1 import (
+        is_allowed_source_url,
+        parse_kalshi_rules,
+        predict_evidence_s1,
+    )
+
+    rules = parse_kalshi_rules(resolution_criteria)
+    if source_url:
+        _validate_public_http_url(source_url)
+        if rules["allowed_domains"] and not is_allowed_source_url(
+            source_url, rules["allowed_domains"]
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="source_url domain is not an approved Source Agency for this market",
+            )
+
     text = (evidence_text or "").strip()
     if not text and source_url:
         text = await fetch_source_text(source_url)
@@ -132,4 +156,35 @@ async def verify_resolution_evidence(
         except Exception:
             pass
 
+    s1_pred = predict_evidence_s1(
+        question,
+        proposed_outcome,
+        text,
+        resolution_criteria=resolution_criteria,
+        oracle_threshold=oracle_threshold,
+        oracle_comparator=oracle_comparator,
+    )
+    if s1_pred is not None:
+        return s1_pred
+
     return _local_entailment(question, proposed_outcome, text)
+
+
+def resolve_expired_no_data(
+    resolution_criteria: str | None,
+    *,
+    has_verified_yes_evidence: bool = False,
+) -> dict[str, Any] | None:
+    """Kalshi Rule 3: if expired with no Source Agency data, deterministically resolve NO."""
+    from app.services.oracle_evidence_s1 import parse_kalshi_rules
+
+    if has_verified_yes_evidence:
+        return None
+    rules = parse_kalshi_rules(resolution_criteria)
+    if not rules["no_data_resolves_no"]:
+        return None
+    return {
+        "outcome": "NO",
+        "confidence": 1.0,
+        "mode": "kalshi_no_data_default",
+    }
