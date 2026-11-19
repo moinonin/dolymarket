@@ -1162,7 +1162,11 @@ function NewsVisualMarquee({
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [brokenImgs, setBrokenImgs] = useState<Record<string, boolean>>({})
-  const swipeStartX = useRef<number | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
+  const didSwipeRef = useRef(false)
+  const wheelAccumRef = useRef(0)
+  const wheelLockUntilRef = useRef(0)
 
   const slides = useMemo(() => {
     const evBySlug = new Map(events.map((e) => [e.slug, e]))
@@ -1217,29 +1221,93 @@ function NewsVisualMarquee({
     return () => window.clearInterval(timer)
   }, [paused, total])
 
+  // Non-passive horizontal wheel listener for two-finger touchpad swiping (blocks macOS back-nav)
+  useEffect(() => {
+    const el = sectionRef.current
+    if (!el || total <= 1) return
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || Math.abs(e.deltaX) < 4) return
+      e.preventDefault()
+      const now = performance.now()
+      if (now < wheelLockUntilRef.current) {
+        wheelAccumRef.current = 0
+        return
+      }
+      wheelAccumRef.current += e.deltaX
+      if (Math.abs(wheelAccumRef.current) >= 45) {
+        const dir = wheelAccumRef.current > 0 ? 1 : -1
+        wheelAccumRef.current = 0
+        wheelLockUntilRef.current = now + 320
+        setIndex((i) => (i + dir + total) % total)
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [total])
+
   if (total === 0) return null
 
   const prev = () => setIndex((i) => (i - 1 + total) % total)
   const next = () => setIndex((i) => (i + 1) % total)
   const ordered = Array.from({ length: total }, (_, offset) => slides[(index + offset) % total])
 
+  const finishSwipe = (endX: number, endY: number) => {
+    const start = swipeStartRef.current
+    swipeStartRef.current = null
+    if (!start || total <= 1) return
+    const dx = endX - start.x
+    const dy = endY - start.y
+    if (Math.abs(dx) > 36 && Math.abs(dx) > Math.abs(dy)) {
+      didSwipeRef.current = true
+      if (dx < 0) next()
+      else prev()
+      window.setTimeout(() => {
+        didSwipeRef.current = false
+      }, 250)
+    }
+  }
+
   return (
     <section
+      ref={sectionRef}
+      tabIndex={0}
+      aria-label="News and active markets carousel"
       onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onTouchStart={(e) => {
-        swipeStartX.current = e.touches[0]?.clientX ?? null
+      onMouseLeave={() => {
+        setPaused(false)
+        swipeStartRef.current = null
       }}
-      onTouchEnd={(e) => {
-        if (swipeStartX.current == null) return
-        const dx = (e.changedTouches[0]?.clientX ?? swipeStartX.current) - swipeStartX.current
-        swipeStartX.current = null
-        if (Math.abs(dx) > 40) {
-          if (dx < 0) next()
-          else prev()
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowRight') next()
+        else if (e.key === 'ArrowLeft') prev()
+      }}
+      onTouchStart={(e) => {
+        const t = e.touches[0]
+        if (t) {
+          setPaused(true)
+          swipeStartRef.current = { x: t.clientX, y: t.clientY }
         }
       }}
-      className="relative mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 p-3 touch-pan-y"
+      onTouchEnd={(e) => {
+        setPaused(false)
+        const t = e.changedTouches[0]
+        if (t) finishSwipe(t.clientX, t.clientY)
+      }}
+      onTouchCancel={() => {
+        setPaused(false)
+        swipeStartRef.current = null
+      }}
+      onPointerDown={(e) => {
+        if (e.pointerType === 'mouse' && e.button === 0) {
+          swipeStartRef.current = { x: e.clientX, y: e.clientY }
+        }
+      }}
+      onPointerUp={(e) => {
+        if (e.pointerType === 'mouse') {
+          finishSwipe(e.clientX, e.clientY)
+        }
+      }}
+      className="relative mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 p-3 touch-pan-y overscroll-x-contain select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/50"
     >
       <div className="relative">
         {total > 1 && (
@@ -1274,7 +1342,10 @@ function NewsVisualMarquee({
           <button
             key={slide.key}
             type="button"
-            onClick={() => onOpen(slide.slug)}
+            onClick={() => {
+              if (didSwipeRef.current) return
+              onOpen(slide.slug)
+            }}
             className={`group relative flex aspect-[16/10] min-h-[240px] w-full flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[255px] lg:min-h-[270px] ${
               slotIdx === 3 ? 'hidden 2xl:flex' : ''
             }`}
