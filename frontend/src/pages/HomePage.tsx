@@ -410,16 +410,34 @@ export default function HomePage({
         </div>
       </section>
 
-      {/* Auto-sliding Visual News & Market Image Strip (slides left continuously, pauses on hover) */}
-      {!loading && (filteredEvents.length > 0 || events.length > 0) && (
-        <NewsVisualMarquee
-          events={(filteredEvents.length > 0 ? filteredEvents : events).slice(0, 8)}
-          newsSlides={newsSlides}
-          tickers={tickers}
-          topicImages={topicImages}
-          onOpen={onOpenEvent}
-        />
-      )}
+      {/* Auto-sliding Visual News & Market Image Strip (filters with category/tag/search) */}
+      {!loading && (filteredEvents.length > 0 || events.length > 0) && (() => {
+        const isFiltered =
+          activeCategory !== 'Trending' || selectedTag !== 'ALL' || searchQuery.trim().length > 0
+        const filteredSlugs = new Set(filteredEvents.map((e) => e.slug))
+        const needle = (
+          selectedTag !== 'ALL'
+            ? selectedTag
+            : searchQuery.trim() || (activeCategory !== 'Trending' && activeCategory !== 'New' ? activeCategory : '')
+        ).toLowerCase()
+        const matchingNews = !isFiltered
+          ? newsSlides
+          : newsSlides.filter((n) => {
+              if (filteredSlugs.has(n.market_slug)) return true
+              if (!needle) return false
+              const hay = `${n.category} ${n.news_title} ${n.caption} ${n.market_title}`.toLowerCase()
+              return hay.includes(needle)
+            })
+        return (
+          <NewsVisualMarquee
+            events={(filteredEvents.length > 0 ? filteredEvents : events).slice(0, 8)}
+            newsSlides={matchingNews}
+            tickers={tickers}
+            topicImages={topicImages}
+            onOpen={onOpenEvent}
+          />
+        )
+      })()}
 
       {isTrendingHome ? (
         <>
