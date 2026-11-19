@@ -90,6 +90,17 @@ async def test_build_news_carousel_matches_items_to_best_active_market():
     assert by_src["Reuters"]["market_slug"] == "fed-rate-cut"
     assert by_src["Reuters"]["yes_pct"] == 71
 
+    # Category filter returns strictly matching category items
+    crypto_only = await build_news_carousel(
+        active_events, limit=6, category="Crypto", raw_items=raw_items
+    )
+    assert len(crypto_only) == 1
+    assert crypto_only[0]["source"] == "CoinDesk"
+    sports_only = await build_news_carousel(
+        active_events, limit=6, category="Sports", raw_items=raw_items
+    )
+    assert sports_only == []
+
 
 async def test_news_carousel_endpoint_returns_linked_slides(client, monkeypatch):
     h = await auth_headers(client, "news_user@example.com")

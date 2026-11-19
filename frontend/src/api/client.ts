@@ -1540,9 +1540,17 @@ export class ApiClient {
 
   /** Cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets. */
   getNewsCarousel(
-    limit = 12
+    limit = 12,
+    filters?: { category?: string; tag?: string }
   ): Promise<{ items: NewsCarouselItem[]; sources: string[] }> {
-    return this.request(`/api/v4/prediction/news/carousel?limit=${limit}`, {}, false);
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (filters?.category && filters.category !== 'Trending' && filters.category !== 'New') {
+      params.set('category', filters.category);
+    }
+    if (filters?.tag && filters.tag !== 'ALL') {
+      params.set('tag', filters.tag);
+    }
+    return this.request(`/api/v4/prediction/news/carousel?${params.toString()}`, {}, false);
   }
 }
 

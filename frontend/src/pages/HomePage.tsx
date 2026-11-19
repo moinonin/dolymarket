@@ -245,6 +245,39 @@ export default function HomePage({
     }
   }, [])
 
+  // Re-query cached backend news pool whenever user clicks a category tab or tag
+  useEffect(() => {
+    let cancelled = false
+    const isDefault =
+      (activeCategory === 'Trending' || activeCategory === 'New') && selectedTag === 'ALL'
+    api
+      .getNewsCarousel(12, {
+        category: activeCategory,
+        tag: selectedTag,
+      })
+      .then((newsRes) => {
+        if (!cancelled && Array.isArray(newsRes.items)) {
+          setNewsSlides(newsRes.items)
+          if (isDefault && newsRes.items.length > 0) {
+            try {
+              window.sessionStorage.setItem(
+                'algoxen_news_carousel_v1',
+                JSON.stringify(newsRes.items)
+              )
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      })
+      .catch(() => {
+        /* keep current slides */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeCategory, selectedTag])
+
   // Rank tags across active events by total volume + event count (Kalshi-style trending topics)
   const trendingTags = useMemo(() => {
     const scores = new Map<string, number>()
@@ -434,24 +467,16 @@ export default function HomePage({
         </div>
       </section>
 
-      {/* Auto-sliding Visual News & Market Image Strip (filters with category/tag/search) */}
+      {/* Auto-sliding Visual News & Market Image Strip (strictly matches active category/tag/search) */}
       {(!loading || newsSlides.length > 0) && (filteredEvents.length > 0 || events.length > 0 || newsSlides.length > 0) && (() => {
-        const isFiltered =
-          activeCategory !== 'Trending' || selectedTag !== 'ALL' || searchQuery.trim().length > 0
-        const filteredSlugs = new Set(filteredEvents.map((e) => e.slug))
-        const needle = (
-          selectedTag !== 'ALL'
-            ? selectedTag
-            : searchQuery.trim() || (activeCategory !== 'Trending' && activeCategory !== 'New' ? activeCategory : '')
-        ).toLowerCase()
-        const matchingNews = !isFiltered
-          ? newsSlides
-          : newsSlides.filter((n) => {
-              if (filteredSlugs.has(n.market_slug)) return true
-              if (!needle) return false
-              const hay = `${n.category} ${n.news_title} ${n.caption} ${n.market_title}`.toLowerCase()
-              return hay.includes(needle)
-            })
+        const q = searchQuery.trim().toLowerCase()
+        const matchingNews = q
+          ? newsSlides.filter((n) =>
+              `${n.category} ${n.news_title} ${n.caption} ${n.market_title} ${n.source}`
+                .toLowerCase()
+                .includes(q)
+            )
+          : newsSlides
         return (
           <NewsVisualMarquee
             events={(filteredEvents.length > 0 ? filteredEvents : events).slice(0, 8)}

@@ -335,6 +335,8 @@ def _build_candles(fills, resolution: str = "1m") -> list[dict]:
 @router.get("/news/carousel")
 async def news_carousel(
     limit: int = Query(default=12, ge=1, le=24),
+    category: str | None = Query(default=None, max_length=60),
+    tag: str | None = Query(default=None, max_length=60),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets."""
@@ -380,7 +382,9 @@ async def news_carousel(
             }
         )
 
-    items = await build_news_carousel(active_events, limit=limit)
+    items = await build_news_carousel(
+        active_events, limit=limit, category=category, tag=tag
+    )
     return {
         "items": items,
         "sources": ["rss", "gdelt", "currents", "wikimedia"],

@@ -42,9 +42,15 @@ _STOPWORDS = frozenset(
 _RSS_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("BBC Business", "Economics", "https://feeds.bbci.co.uk/news/business/rss.xml"),
     ("BBC World", "Politics", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("NYT Politics", "Politics", "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml"),
     ("CNBC", "Financials", "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
     ("CoinDesk", "Crypto", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("NYT Business", "Companies", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
+    ("BBC Sport", "Sports", "https://feeds.bbci.co.uk/sport/rss.xml"),
+    ("ESPN", "Sports", "https://www.espn.com/espn/rss/news"),
+    ("BBC Tech", "Tech & Science", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
+    ("BBC Science", "Climate", "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"),
+    ("BBC Culture", "Culture", "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml"),
 )
 
 _GDELT_URL = (
@@ -356,10 +362,43 @@ def _score_market_match(news_item: dict[str, Any], ev: dict[str, Any]) -> float:
     return score
 
 
+def _item_matches_filter(item: dict[str, Any], category: str | None, tag: str | None) -> bool:
+    """Strictly match a news item to the requested category or tag."""
+    cat_q = (category or "").strip().lower()
+    tag_q = (tag or "").strip().lower()
+    if cat_q in ("", "trending", "new", "all"):
+        cat_q = ""
+    if tag_q in ("", "all"):
+        tag_q = ""
+    if not cat_q and not tag_q:
+        return True
+
+    hint = (item.get("hint_category") or "").lower()
+    hay = f"{hint} {item.get('news_title', '')} {item.get('caption', '')} {item.get('source', '')}".lower()
+    hay_tokens = _tokens(hay)
+
+    if cat_q:
+        # Direct category match or keyword match for that category
+        cat_ok = (cat_q in hint) or (hint in cat_q and bool(hint))
+        if not cat_ok:
+            for k, kws in _CATEGORY_KEYWORDS.items():
+                if k in cat_q and (hay_tokens & kws):
+                    cat_ok = True
+                    break
+        if not cat_ok and cat_q not in hay:
+            return False
+
+    if tag_q and tag_q not in hay:
+        return False
+    return True
+
+
 async def build_news_carousel(
     active_events: list[dict[str, Any]],
     *,
     limit: int = 12,
+    category: str | None = None,
+    tag: str | None = None,
     raw_items: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Match live news items (photos + titles + captions) to active markets."""
@@ -367,6 +406,11 @@ async def build_news_carousel(
         return []
 
     items = raw_items if raw_items is not None else await fetch_raw_news()
+    if category or tag:
+        items = [it for it in items if _item_matches_filter(it, category, tag)]
+        if not items:
+            return []
+
     slides: list[dict[str, Any]] = []
     per_event_counts: dict[str, int] = {}
     max_per_event = max(2, (limit // max(1, len(active_events))) + 1)
@@ -407,7 +451,7 @@ async def build_news_carousel(
                 "market_id": chosen.get("market_id"),
                 "market_slug": chosen["slug"],
                 "market_title": chosen["title"],
-                "category": chosen.get("category") or item.get("hint_category") or "Markets",
+                "category": item.get("hint_category") or chosen.get("category") or "Markets",
                 "yes_pct": chosen.get("yes_pct"),
                 "volume": float(chosen.get("volume") or 0),
             }
