@@ -214,15 +214,38 @@ export default function LiveTradeTicket({
       )}
 
       <label className="mb-3 block">
-        <span className="text-[11px] text-slate-400">Shares (min {market.min_order_size})</span>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-slate-400">Shares (min {market.min_order_size})</span>
+          <div className="flex items-center gap-1">
+            {[10, 50, 100, 500].map((usd) => {
+              const refPrice = !Number.isNaN(effectivePrice) && effectivePrice > 0 ? effectivePrice : 0.5
+              const sharesForUsd = Math.max(
+                market.min_order_size || 1,
+                Math.floor(usd / Math.max(0.01, refPrice))
+              )
+              return (
+                <button
+                  key={usd}
+                  type="button"
+                  disabled={!market.accepting_orders}
+                  onClick={() => setSize(String(sharesForUsd))}
+                  className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-40"
+                >
+                  ${usd}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <input
           type="number"
           step="any"
           min={market.min_order_size}
           value={size}
           onChange={(e) => setSize(e.target.value)}
+          disabled={!market.accepting_orders}
           placeholder={String(market.min_order_size)}
-          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-emerald-500/60"
+          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-white outline-none focus:border-emerald-500/60 disabled:opacity-50"
         />
       </label>
 
@@ -239,9 +262,30 @@ export default function LiveTradeTicket({
       )}
 
       {totalCost != null && (
-        <div className="mb-3 flex items-center justify-between rounded-xl bg-slate-950/70 px-3 py-2 text-xs">
-          <span className="text-slate-400">Est. notional</span>
-          <span className="font-mono font-semibold text-white">${totalCost.toFixed(2)}</span>
+        <div className="mb-3 space-y-1 rounded-xl bg-slate-950/70 px-3 py-2.5 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">{side === 'BUY' ? 'You pay' : 'Est. proceeds'}</span>
+            <span className="font-mono tabular-nums font-semibold text-white">${totalCost.toFixed(2)}</span>
+          </div>
+          {side === 'BUY' && !Number.isNaN(sizeNum) && sizeNum > 0 && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">
+                  Payout if {market.tokens?.find((t) => t.token_id === tokenId)?.symbol ?? 'Yes'} wins
+                </span>
+                <span className="font-mono tabular-nums font-semibold text-emerald-400">
+                  ${sizeNum.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Max profit</span>
+                <span className="font-mono tabular-nums text-emerald-400">
+                  +${Math.max(0, sizeNum - totalCost).toFixed(2)} (
+                  {(((sizeNum - totalCost) / totalCost) * 100).toFixed(1)}%)
+                </span>
+              </div>
+            </>
+          )}
         </div>
       )}
 

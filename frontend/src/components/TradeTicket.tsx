@@ -444,27 +444,62 @@ export default function TradeTicket({
         )}
 
         <label className="block">
-          <span className="text-[11px] font-medium text-slate-400">Shares (min {market.min_order_size})</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-medium text-slate-400">Shares (min {market.min_order_size})</span>
+            <div className="flex items-center gap-1">
+              {[10, 50, 100, 500].map((usd) => {
+                const refPrice =
+                  orderType === 'LIMIT' && !Number.isNaN(priceNum) && priceNum > 0
+                    ? priceNum
+                    : (side === 'BUY' ? asks[0]?.price : bids[0]?.price) ?? lastPrice ?? 0.5
+                const sharesForUsd = Math.max(market.min_order_size, Math.floor(usd / Math.max(0.01, refPrice)))
+                return (
+                  <button
+                    key={usd}
+                    type="button"
+                    disabled={!isMarketActive}
+                    onClick={() => setAmount(String(sharesForUsd))}
+                    className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-40"
+                  >
+                    ${usd}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
           <input
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="25"
             inputMode="decimal"
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none transition focus:border-blue-500"
+            disabled={!isMarketActive}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm outline-none transition focus:border-blue-500 disabled:opacity-50"
           />
         </label>
 
         {cost != null && (
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
             <div className="flex justify-between">
+              <span className="text-slate-400">{side === 'BUY' ? 'You pay' : 'Est. proceeds'}</span>
+              <span className="font-mono tabular-nums text-white">${cost.toFixed(2)}</span>
+            </div>
+            {side === 'BUY' && !Number.isNaN(amountNum) && amountNum > 0 && (
+              <div className="mt-0.5 flex justify-between">
+                <span className="text-slate-400">Payout if {token.symbol} wins</span>
+                <span className="font-mono tabular-nums font-semibold text-emerald-400">
+                  ${amountNum.toFixed(2)}
+                </span>
+              </div>
+            )}
+            <div className="mt-0.5 flex justify-between">
               <span className="text-slate-400">Max profit</span>
-              <span className="font-mono text-emerald-400">
-                {maxProfit != null ? `$${maxProfit.toFixed(2)}` : '—'}
+              <span className="font-mono tabular-nums text-emerald-400">
+                {maxProfit != null ? `+$${maxProfit.toFixed(2)}` : '—'}
               </span>
             </div>
             <div className="mt-0.5 flex justify-between">
               <span className="text-slate-400">Potential return</span>
-              <span className="font-mono text-slate-200">
+              <span className="font-mono tabular-nums text-slate-200">
                 {returnPct != null && Number.isFinite(returnPct) ? `${returnPct.toFixed(1)}%` : '—'}
               </span>
             </div>

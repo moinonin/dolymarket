@@ -1,12 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
+  Clock,
   Coins,
   Fingerprint,
+  Flame,
   Keyboard,
   Percent,
   Radio,
+  Search,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -22,6 +25,19 @@ interface TickerRow {
   price: number | null
 }
 
+type FeedMode = 'TRENDING' | 'NEW' | 'ENDING_SOON' | 'ALL'
+
+function eventCountdown(endDate: string | null): string | null {
+  if (!endDate) return null
+  const ms = new Date(endDate).getTime() - Date.now()
+  if (Number.isNaN(ms) || ms <= 0) return null
+  const d = Math.floor(ms / 86400000)
+  if (d > 0) return `${d}d left`
+  const h = Math.floor(ms / 3600000)
+  if (h > 0) return `${h}h left`
+  return `${Math.max(1, Math.floor(ms / 60000))}m left`
+}
+
 export default function HomePage({
   onOpenEvent,
   onOpenAuth,
@@ -32,7 +48,11 @@ export default function HomePage({
   onBrowseMarkets: () => void
 }) {
   const [events, setEvents] = useState<Event[]>([])
+  const [corpusTags, setCorpusTags] = useState<string[]>([])
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
+  const [feedMode, setFeedMode] = useState<FeedMode>('TRENDING')
+  const [selectedTag, setSelectedTag] = useState<string>('ALL')
+  const [searchQuery, setSearchQuery] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,11 +62,15 @@ export default function HomePage({
       try {
         setLoading(true)
         setError(null)
-        const res = await api.listEvents({ sort_by: 'liquidity', limit: 100 })
+        const [res, tagRes] = await Promise.all([
+          api.listEvents({ sort_by: 'liquidity', limit: 100 }),
+          api.listTags().catch(() => ({ tags: [] as string[] })),
+        ])
         if (cancelled) return
         setEvents(res.events)
+        setCorpusTags(tagRes.tags || [])
 
-        const preview = res.events.slice(0, 6)
+        const preview = res.events.filter((e) => e.status === 'ACTIVE').slice(0, 12)
         const rows: Record<string, TickerRow> = {}
         await Promise.all(
           preview.map(async (ev) => {
@@ -79,7 +103,67 @@ export default function HomePage({
     }
   }, [])
 
-  const preview = events.slice(0, 6)
+  // Rank tags across active events by total volume + event count (Kalshi-style trending topics)
+  const trendingTags = useMemo(() => {
+    const scores = new Map<string, number>()
+    for (const ev of events) {
+      if (ev.status !== 'ACTIVE') continue
+      const weight = (ev.total_volume || 0) + 100
+      const tags = ev.tags?.length ? ev.tags : [ev.category]
+      for (const raw of tags) {
+        const tag = raw?.trim()
+        if (!tag) continue
+        scores.set(tag, (scores.get(tag) || 0) + weight)
+      }
+    }
+    for (const t of corpusTags) {
+      const tag = t?.trim()
+      if (tag && !scores.has(tag)) scores.set(tag, 1)
+    }
+    return Array.from(scores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tag]) => tag)
+  }, [events, corpusTags])
+
+  const filteredEvents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const now = Date.now()
+    let list = events.filter((ev) => (feedMode === 'ALL' ? true : ev.status === 'ACTIVE'))
+
+    if (selectedTag !== 'ALL') {
+      const target = selectedTag.toLowerCase()
+      list = list.filter(
+        (ev) =>
+          ev.category.toLowerCase() === target ||
+          (ev.tags || []).some((t) => t.toLowerCase() === target)
+      )
+    }
+    if (q) {
+      list = list.filter(
+        (ev) =>
+          ev.title.toLowerCase().includes(q) ||
+          ev.category.toLowerCase().includes(q) ||
+          (ev.tags || []).some((t) => t.toLowerCase().includes(q))
+      )
+    }
+
+    const sorted = [...list]
+    if (feedMode === 'TRENDING') {
+      sorted.sort((a, b) => (b.total_volume || 0) - (a.total_volume || 0))
+    } else if (feedMode === 'NEW') {
+      sorted.reverse()
+    } else if (feedMode === 'ENDING_SOON') {
+      sorted.sort((a, b) => {
+        const ta = a.end_date ? new Date(a.end_date).getTime() - now : Number.MAX_SAFE_INTEGER
+        const tb = b.end_date ? new Date(b.end_date).getTime() - now : Number.MAX_SAFE_INTEGER
+        return (ta > 0 ? ta : Number.MAX_SAFE_INTEGER) - (tb > 0 ? tb : Number.MAX_SAFE_INTEGER)
+      })
+    }
+    return sorted
+  }, [events, feedMode, selectedTag, searchQuery])
+
+  const preview = filteredEvents.slice(0, 8)
   const openMarkets = events.filter((e) => e.status === 'ACTIVE').length
   const resolvedMarkets = events.filter((e) => e.status === 'RESOLVED').length
   const trackedVolume = events.reduce((acc, e) => acc + (e.total_volume || 0), 0)
@@ -162,24 +246,91 @@ export default function HomePage({
         </div>
       </section>
 
-      {/* Live markets */}
+      {/* Trending Markets Feed (Kalshi-style default) */}
       <section className="mt-6">
-        <div className="mb-4 flex items-end justify-between gap-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-semibold text-white">
-              <Activity className="h-5 w-5 text-emerald-400" />
-              Markets trading right now
+              <Flame className="h-5 w-5 text-emerald-400" />
+              Trending markets
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              Live order books and prices streamed from the matching engine.
+              Ranked by live volume across active tags and order books.
             </p>
           </div>
-          <button
-            onClick={onBrowseMarkets}
-            className="text-xs font-medium text-emerald-400 transition hover:text-emerald-300"
-          >
-            View all →
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search trending topics…"
+                className="w-48 rounded-lg border border-slate-800 bg-slate-900/80 py-1.5 pl-8 pr-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500/50 sm:w-56"
+              />
+            </div>
+            <button
+              onClick={onBrowseMarkets}
+              className="rounded-lg border border-slate-800 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
+            >
+              View all →
+            </button>
+          </div>
+        </div>
+
+        {/* Feed mode tabs + Dynamic Trending Tag strip */}
+        <div className="mb-4 flex flex-col gap-2.5 border-b border-slate-800/80 pb-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { key: 'TRENDING', label: 'Trending', icon: Flame },
+                { key: 'NEW', label: 'New', icon: Sparkles },
+                { key: 'ENDING_SOON', label: 'Ending Soon', icon: Clock },
+                { key: 'ALL', label: 'All Markets', icon: Activity },
+              ] as const
+            ).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setFeedMode(key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  feedMode === key
+                    ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40'
+                    : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {trendingTags.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              <button
+                onClick={() => setSelectedTag('ALL')}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                  selectedTag === 'ALL'
+                    ? 'bg-white text-slate-950 font-semibold'
+                    : 'border border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-white'
+                }`}
+              >
+                All Topics
+              </button>
+              {trendingTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTag(selectedTag === tag ? 'ALL' : tag)}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                    selectedTag === tag
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'border border-slate-800 bg-slate-900/60 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {error ? (
@@ -566,39 +717,88 @@ function MarketPreviewCard({
   ticker?: TickerRow
   onOpen: (slug: string) => void
 }) {
+  const yesCents = ticker?.price != null ? Math.round(ticker.price * 100) : null
+  const noCents = yesCents != null ? 100 - yesCents : null
+  const cd = eventCountdown(event.end_date)
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(event.slug)}
-      className="group flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(event.slug)
+        }
+      }}
+      className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/65 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
     >
-      <div className="mb-2.5 flex items-center justify-between gap-2">
-        <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
-          {event.category}
-        </span>
-        {ticker?.price != null && (
-          <span className="font-mono text-sm font-semibold text-emerald-400">
-            {(ticker.price * 100).toFixed(0)}¢
+      <div>
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
+              {event.category}
+            </span>
+            {event.tier === 'COMMUNITY' && (
+              <span className="rounded-md bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300">
+                Community
+              </span>
+            )}
+          </div>
+          <span className="font-mono tabular-nums text-sm font-bold text-emerald-400">
+            {yesCents != null ? `${yesCents}%` : '—'}
           </span>
-        )}
+        </div>
+
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white transition group-hover:text-emerald-300">
+          {event.title}
+        </h3>
       </div>
-      <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white transition group-hover:text-emerald-300">
-        {event.title}
-      </h3>
-      <div className="mt-3">
+
+      <div className="mt-4 space-y-2.5">
         <ProbabilityBar
           yes={ticker?.price ?? null}
           no={ticker?.price != null ? 1 - ticker.price : null}
         />
+
+        {/* Kalshi-style inline Yes / No quick-action pills */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(event.slug)
+            }}
+            className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+          >
+            <span>{ticker?.symbol ?? 'Yes'}</span>
+            <span className="font-mono tabular-nums">
+              {yesCents != null ? `${yesCents}¢` : '—'}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(event.slug)
+            }}
+            className="flex items-center justify-between rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20"
+          >
+            <span>No</span>
+            <span className="font-mono tabular-nums">
+              {noCents != null ? `${noCents}¢` : '—'}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] font-medium text-slate-500">
+          <span className="font-mono tabular-nums">
+            Vol ${Math.round(event.total_volume || 0).toLocaleString()}
+          </span>
+          {cd && <span className="text-amber-400/80">{cd}</span>}
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-between text-[10px] font-medium text-slate-500">
-        <span className="text-emerald-400">
-          {ticker?.symbol ?? 'YES'}{' '}
-          {ticker?.price != null
-            ? `${(ticker.price * 100).toFixed(0)}%`
-            : '—'}
-        </span>
-        <span>Vol ${Math.round(event.total_volume || 0).toLocaleString()}</span>
-      </div>
-    </button>
+    </div>
   )
 }

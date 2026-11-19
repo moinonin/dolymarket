@@ -277,87 +277,108 @@ function LiveMarketCard({ market, onOpen }: { market: LiveMarket; onOpen: () => 
   const no = second?.price ?? null
   const resolved = market.resolved || market.status === 'CLOSED'
   const winnerIndex = market.winning_outcome_index
+  const yesCents = yes != null ? Math.round(yes * 100) : null
+  const noCents = no != null ? Math.round(no * 100) : yesCents != null ? 100 - yesCents : null
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="group flex w-full flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900/80"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
+      className="group flex w-full cursor-pointer flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/50 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900/80"
     >
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="text-sm font-semibold leading-snug text-white group-hover:text-emerald-200">
-          {market.question}
-        </h2>
-        {resolved ? (
-          <span className="shrink-0 rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-300">
-            Resolved
-          </span>
-        ) : (
-          <span className="shrink-0 rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-            {market.status}
-          </span>
-        )}
-      </div>
-      {market.event_title && (
-        <p className="mt-1 truncate text-xs text-slate-500">{market.event_title}</p>
-      )}
-
-      <div className="mt-4 flex items-end gap-4">
-        <div className="flex-1">
-          <div className="flex items-baseline justify-between text-[11px] text-slate-400">
-            <span>{first?.symbol ?? 'Yes'}</span>
-            <span className="font-mono text-base font-semibold text-emerald-400">
-              {yes != null ? `${(yes * 100).toFixed(1)}%` : '—'}
-            </span>
-          </div>
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-            {yes != null && (
-              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${yes * 100}%` }} />
-            )}
-          </div>
-        </div>
-        {second && (
-          <div className="flex-1">
-            <div className="flex items-baseline justify-between text-[11px] text-slate-400">
-              <span>{second.symbol}</span>
-              <span className="font-mono text-base font-semibold text-rose-400">
-                {no != null ? `${(no * 100).toFixed(1)}%` : '—'}
-              </span>
-            </div>
-            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-              {no != null && (
-                <div className="h-full rounded-full bg-rose-500" style={{ width: `${no * 100}%` }} />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {resolved && (
-        <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-[11px]">
-          {winnerIndex != null && market.outcomes?.[winnerIndex] ? (
-            <span className="text-slate-300">
-              Result:{' '}
-              <span className="font-semibold text-emerald-300">
-                {market.outcomes[winnerIndex]}
-              </span>{' '}
-              won
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-sm font-semibold leading-snug text-white group-hover:text-emerald-200">
+            {market.question}
+          </h2>
+          {resolved ? (
+            <span className="shrink-0 rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-300">
+              Resolved
             </span>
           ) : (
-            <span className="text-slate-500">Closed — no settled outcome reported</span>
+            <span className="shrink-0 rounded-full border border-slate-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+              {market.status}
+            </span>
           )}
         </div>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
-        <span>vol ${fmtCompact(market.volume)}</span>
-        <span>liq ${fmtCompact(market.liquidity)}</span>
-        {market.best_bid != null && market.best_ask != null && (
-          <span className="font-mono text-slate-400">
-            {(market.best_bid * 100).toFixed(1)}¢ / {(market.best_ask * 100).toFixed(1)}¢
-          </span>
+        {market.event_title && (
+          <p className="mt-1 truncate text-xs text-slate-500">{market.event_title}</p>
         )}
-        {market.category && <span className="uppercase tracking-wide">{market.category}</span>}
       </div>
-    </button>
+
+      <div className="mt-4 space-y-2.5">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+          {yes != null && (
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${yes * 100}%` }} />
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={resolved}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen()
+            }}
+            className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="truncate">{first?.symbol ?? 'Yes'}</span>
+            <span className="font-mono tabular-nums">
+              {yesCents != null ? `${yesCents}¢` : '—'}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={resolved}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen()
+            }}
+            className="flex items-center justify-between rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="truncate">{second?.symbol ?? 'No'}</span>
+            <span className="font-mono tabular-nums">
+              {noCents != null ? `${noCents}¢` : '—'}
+            </span>
+          </button>
+        </div>
+
+        {resolved && (
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5 text-[11px]">
+            {winnerIndex != null && market.outcomes?.[winnerIndex] ? (
+              <span className="text-slate-300">
+                Result:{' '}
+                <span className="font-semibold text-emerald-300">
+                  {market.outcomes[winnerIndex]}
+                </span>{' '}
+                won
+              </span>
+            ) : (
+              <span className="text-slate-500">Closed — no settled outcome reported</span>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] text-slate-500">
+          <span className="font-mono tabular-nums">vol ${fmtCompact(market.volume)}</span>
+          <span className="font-mono tabular-nums">liq ${fmtCompact(market.liquidity)}</span>
+          {market.best_bid != null && market.best_ask != null && (
+            <span className="font-mono tabular-nums text-slate-400">
+              {(market.best_bid * 100).toFixed(1)}¢ / {(market.best_ask * 100).toFixed(1)}¢
+            </span>
+          )}
+          {market.category && <span className="uppercase tracking-wide">{market.category}</span>}
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -536,72 +536,142 @@ function EventCard({
   onOpen: (slug: string) => void
 }) {
   const cd = countdown(event.end_date)
+  const markets = event.markets || []
+  const isMulti = markets.length > 1
+  const yesCents = ticker?.price != null ? Math.round(ticker.price * 100) : null
+  const noCents = yesCents != null ? 100 - yesCents : null
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(event.slug)}
-      className="group relative flex flex-col items-stretch rounded-2xl border border-slate-800 bg-slate-900/70 p-5 text-left transition-all hover:border-emerald-500/40 hover:bg-slate-900 hover:shadow-lg"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(event.slug)
+        }
+      }}
+      className="group relative flex cursor-pointer flex-col items-stretch justify-between rounded-2xl border border-slate-800 bg-slate-900/70 p-5 text-left transition-all hover:border-emerald-500/40 hover:bg-slate-900 hover:shadow-lg"
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
-            {event.category}
-          </span>
-          {event.tier === 'COMMUNITY' && (
-            <span className="rounded-md bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300">
-              Community
+      <div>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
+              {event.category}
             </span>
+            {event.tier === 'COMMUNITY' && (
+              <span className="rounded-md bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300">
+                Community
+              </span>
+            )}
+          </div>
+          {event.status === 'UNFUNDED' ? (
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+              Unfunded
+            </span>
+          ) : (
+            <StatusPill status={event.status} />
           )}
         </div>
-        {event.status === 'UNFUNDED' ? (
-          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-            Unfunded
+        <h3 className="font-semibold leading-snug text-white transition group-hover:text-emerald-300">
+          {event.title}
+        </h3>
+        {event.description && (
+          <p className="mt-1 line-clamp-2 text-xs text-slate-500">{event.description}</p>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2.5">
+        {isMulti ? (
+          <div className="space-y-1.5">
+            {markets.slice(0, 3).map((m: Market) => {
+              const yesSym = m.tokens?.[0]?.symbol ?? 'Yes'
+              const noSym = m.tokens?.[1]?.symbol ?? 'No'
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-800/80 bg-slate-950/60 px-2.5 py-1.5 text-[11px]"
+                >
+                  <span className="truncate text-slate-300">{m.question}</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpen(event.slug)
+                      }}
+                      className="rounded border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/20"
+                    >
+                      {yesSym}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpen(event.slug)
+                      }}
+                      className="rounded border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-300 hover:bg-rose-500/20"
+                    >
+                      {noSym}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            {markets.length > 3 && (
+              <p className="text-right font-mono text-[10px] text-slate-500">
+                +{markets.length - 3} more outcomes
+              </p>
+            )}
+          </div>
+        ) : markets.length === 1 ? (
+          <div className="space-y-2">
+            <ProbabilityBar
+              yes={ticker?.price ?? null}
+              no={ticker?.price != null ? 1 - ticker.price : null}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpen(event.slug)
+                }}
+                className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+              >
+                <span>{markets[0].tokens?.[0]?.symbol ?? 'Yes'}</span>
+                <span className="font-mono tabular-nums">
+                  {yesCents != null ? `${yesCents}¢` : '—'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpen(event.slug)
+                }}
+                className="flex items-center justify-between rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20"
+              >
+                <span>{markets[0].tokens?.[1]?.symbol ?? 'No'}</span>
+                <span className="font-mono tabular-nums">
+                  {noCents != null ? `${noCents}¢` : '—'}
+                </span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1 font-mono tabular-nums">
+            <CircleDollarSign className="h-3 w-3" />
+            Vol ${event.total_volume?.toLocaleString?.() || '0'}
           </span>
-        ) : (
-          <StatusPill status={event.status} />
-        )}
-      </div>
-      <h3 className="font-semibold leading-snug text-white group-hover:text-emerald-300 transition">
-        {event.title}
-      </h3>
-      {event.description && (
-        <p className="mt-1 line-clamp-2 text-xs text-slate-500">{event.description}</p>
-      )}
-      {event.markets && event.markets.length > 0 && (
-        <div className="mt-4 space-y-2.5">
-          {event.markets.slice(0, 1).map((m: Market) => {
-            const tok = m.tokens[0]
-            return (
-              <div key={m.id} className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3">
-                <div className="mb-2 flex items-center justify-between text-[11px]">
-                  <span className="truncate pr-2 text-slate-400">{m.question}</span>
-                  {ticker?.price != null && (
-                    <span className="shrink-0 font-mono font-semibold text-emerald-400">
-                      ${(ticker.price * 100).toFixed(0)}¢
-                    </span>
-                  )}
-                </div>
-                <ProbabilityBar yes={ticker?.price ?? null} no={ticker?.price != null ? 1 - ticker.price : null} />
-                <div className="mt-2 flex justify-between text-[10px] font-medium">
-                  <span className="text-emerald-400">{tok?.symbol ?? 'YES'} {(ticker?.price ?? 0) >= 0 ? `${(100 * (ticker?.price ?? 0)).toFixed(0)}%` : '—'}</span>
-                  <span className="text-rose-400">
-                    {m.tokens[1]?.symbol ?? 'NO'}{' '}
-                    {ticker?.price != null ? `${(100 * (1 - ticker.price)).toFixed(0)}%` : '—'}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
+          {cd && (
+            <span className={cd === 'ended' ? 'text-slate-600' : 'text-amber-400/80'}>{cd}</span>
+          )}
         </div>
-      )}
-      <div className="mt-4 flex items-center justify-between text-[11px] text-slate-500">
-        <span className="flex items-center gap-1">
-          <CircleDollarSign className="h-3 w-3" />
-          Vol ${event.total_volume?.toLocaleString?.() || '0'}
-        </span>
-        {cd && (
-          <span className={cd === 'ended' ? 'text-slate-600' : 'text-amber-400/80'}>{cd}</span>
-        )}
       </div>
-    </button>
+    </div>
   )
 }

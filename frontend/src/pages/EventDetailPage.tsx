@@ -263,6 +263,31 @@ function TradingPanel({
           tickSize={market.tick_size}
           tokenSymbol={token.symbol}
         />
+
+        {/* Kalshi-style Resolution Rules & Payout Summary */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-white">Resolution &amp; Payout Rules</h3>
+            <span className="rounded-full border border-slate-700 bg-slate-950 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-300">
+              {market.status}
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-slate-400">
+            {market.question}
+          </p>
+          <div className="mt-3 grid gap-2 border-t border-slate-800/80 pt-3 text-[11px] text-slate-400 sm:grid-cols-2">
+            <div>
+              <span className="text-slate-500">Settlement payout: </span>
+              <span className="font-mono text-emerald-400">$1.00 USDC</span> per winning share
+            </div>
+            <div>
+              <span className="text-slate-500">Min tick / size: </span>
+              <span className="font-mono text-slate-300">
+                ${market.tick_size} / {market.min_order_size} sh
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Trade ticket */}
