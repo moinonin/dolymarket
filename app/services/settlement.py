@@ -62,7 +62,12 @@ async def sync_event_status(session: AsyncSession, event_id: str) -> None:
 
 
 async def propose_resolution(
-    session: AsyncSession, market: Market, proposed_outcome_index: int
+    session: AsyncSession,
+    market: Market,
+    proposed_outcome_index: int,
+    *,
+    source_url: str | None = None,
+    evidence_text: str | None = None,
 ) -> OracleDispute:
     if market.status not in ("CLOSED",):
         raise HTTPException(
@@ -71,6 +76,21 @@ async def propose_resolution(
         )
     if proposed_outcome_index < 0 or proposed_outcome_index >= len(market.outcomes or []):
         raise HTTPException(status_code=422, detail="Invalid proposed outcome index")
+    if source_url or evidence_text:
+        from app.services.oracle_verifier import verify_resolution_evidence
+
+        outcome_label = str((market.outcomes or [])[proposed_outcome_index])
+        verdict = await verify_resolution_evidence(
+            market.question,
+            outcome_label,
+            source_url=source_url,
+            evidence_text=evidence_text,
+        )
+        if verdict["verdict"] == "CONTRADICTS" and float(verdict["confidence"]) >= 0.85:
+            raise HTTPException(
+                status_code=422,
+                detail="Submitted evidence contradicts proposed outcome",
+            )
     existing = (
         await session.execute(
             select(OracleDispute).where(

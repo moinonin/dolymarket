@@ -126,7 +126,7 @@ def compute_clarity_score(
     return out
 
 
-LIVE_ORACLE_PROVIDERS = frozenset({"gate", "coingecko"})
+LIVE_ORACLE_PROVIDERS = frozenset({"gate", "coingecko", "fred", "nws", "stooq"})
 
 
 def validate_oracle_feed(feed: str, *, allow_static: bool = False) -> str:
@@ -254,6 +254,73 @@ async def fetch_deterministic_spot(
                 "source_url": url,
                 "observed_at": now_iso,
             }
+
+    if prov == "fred":
+        series_id = symbol.upper()
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"FRED oracle HTTP {resp.status_code}")
+            lines = [ln.strip() for ln in resp.text.splitlines() if ln.strip()]
+            for ln in reversed(lines[1:]):
+                parts = ln.split(",", 1)
+                if len(parts) == 2 and parts[1] not in ("", "."):
+                    try:
+                        val = float(Decimal(parts[1]))
+                        return {
+                            "feed": raw,
+                            "observed_value": val,
+                            "source_url": url,
+                            "observed_at": parts[0],
+                        }
+                    except Exception:
+                        continue
+            raise HTTPException(status_code=502, detail=f"FRED series {series_id} has no valid observation")
+
+    if prov == "nws":
+        parts = symbol.split(":", 1)
+        station = parts[0].upper()
+        unit = parts[1].upper() if len(parts) > 1 else "C"
+        url = f"https://api.weather.gov/stations/{station}/observations/latest"
+        headers = {"User-Agent": "dolymarket-oracle/1.0", "Accept": "application/geo+json"}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"NWS oracle HTTP {resp.status_code}")
+            props = (resp.json() or {}).get("properties") or {}
+            temp_c = (props.get("temperature") or {}).get("value")
+            if temp_c is None:
+                raise HTTPException(status_code=502, detail=f"NWS station {station} missing temperature")
+            val = Decimal(str(temp_c))
+            if unit == "F":
+                val = val * Decimal("1.8") + Decimal("32")
+            return {
+                "feed": raw,
+                "observed_value": float(val.quantize(Decimal("0.01"))),
+                "source_url": url,
+                "observed_at": props.get("timestamp") or now_iso,
+            }
+
+    if prov == "stooq":
+        sym = symbol.lower()
+        url = f"https://stooq.com/q/l/?s={sym}&f=sd2t2ohlcv&h&e=csv"
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"Stooq oracle HTTP {resp.status_code}")
+            lines = [ln.strip() for ln in resp.text.splitlines() if ln.strip()]
+            if len(lines) >= 2:
+                cols = lines[1].split(",")
+                # Header: Symbol,Date,Time,Open,High,Low,Close,Volume
+                if len(cols) >= 7 and cols[6] not in ("", "N/D"):
+                    return {
+                        "feed": raw,
+                        "observed_value": float(Decimal(cols[6])),
+                        "source_url": url,
+                        "observed_at": f"{cols[1]}T{cols[2]}" if len(cols) > 2 else now_iso,
+                    }
+            raise HTTPException(status_code=502, detail=f"Stooq missing close price for {sym}")
 
     raise HTTPException(status_code=422, detail=f"Unsupported deterministic oracle provider: {provider}")
 
