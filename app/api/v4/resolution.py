@@ -47,7 +47,16 @@ class DisputeRequest(BaseModel):
 
 class FinalizeRequest(BaseModel):
     market_id: str = Field(min_length=1, max_length=64)
-    winning_outcome_index: int = Field(ge=0)
+    winning_outcome_index: int = Field(default=0, ge=-1)
+    resolve_invalid: bool = False
+
+
+class ReproposeRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=64)
+    reproposed_outcome_index: int = Field(ge=0)
+    source_url: str | None = Field(default=None, max_length=2048)
+    evidence_text: str | None = Field(default=None, max_length=8000)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class FeedResolveRequest(BaseModel):
@@ -87,13 +96,16 @@ async def propose(
         source_url=str(src_url) if src_url else None,
         evidence_text=str(ev_text) if ev_text else None,
     )
+    base_ev = dict(dispute.evidence_json) if isinstance(dispute.evidence_json, dict) else {}
     if body.evidence is not None:
-        dispute.evidence_json = body.evidence
+        dispute.evidence_json = {**base_ev, **body.evidence}
     elif src_url or ev_text:
         dispute.evidence_json = {
+            **base_ev,
             **({"source_url": src_url} if src_url else {}),
             **({"evidence_text": ev_text} if ev_text else {}),
         }
+    ev_meta = dispute.evidence_json if isinstance(dispute.evidence_json, dict) else {}
     return {
         "market_id": market.id,
         "dispute_id": dispute.id,
@@ -101,6 +113,71 @@ async def propose(
         "bond_amount": float(dispute.bond_amount),
         "dispute_deadline": dispute.dispute_deadline.isoformat(),
         "market_status": market.status,
+        "rules_hash": ev_meta.get("rules_hash"),
+        "updates": ev_meta.get("updates", []),
+        "evidence": dispute.evidence_json,
+    }
+
+
+@router.post("/repropose")
+async def repropose(
+    body: ReproposeRequest,
+    user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Polymarket-style single re-proposal after a first dispute, opening a fresh 2h window."""
+    market = (
+        await session.execute(select(Market).where(Market.id == body.market_id))
+    ).scalar_one_or_none()
+    if market is None:
+        raise HTTPException(status_code=404, detail="Market not found")
+    prior_ev = None
+    prior_dispute = (
+        await session.execute(
+            select(OracleDispute)
+            .where(OracleDispute.market_id == market.id, OracleDispute.status == "DISPUTED")
+            .order_by(OracleDispute.created_at.desc())
+        )
+    ).scalars().first()
+    if prior_dispute and isinstance(prior_dispute.evidence_json, dict):
+        prior_ev = dict(prior_dispute.evidence_json)
+
+    dispute = await settlement.repropose_resolution(
+        session,
+        market,
+        body.reproposed_outcome_index,
+        actor=user.email or user.id,
+        source_url=body.source_url,
+        evidence_text=body.evidence_text,
+        note=body.note,
+    )
+    if prior_ev:
+        stake_id = prior_ev.get("agx_dispute_stake_id")
+        orig_idx = prior_ev.get("original_proposed_index")
+        if stake_id and orig_idx is not None:
+            try:
+                await agx.resolve_dispute(
+                    session,
+                    stake_id,
+                    upheld=(body.reproposed_outcome_index != orig_idx),
+                )
+            except agx.AgxError as exc:
+                logger.warning(
+                    "AGX resolve_dispute skipped on repropose for market %s stake %s: %s",
+                    market.id,
+                    stake_id,
+                    exc.code,
+                )
+    ev_meta = dispute.evidence_json if isinstance(dispute.evidence_json, dict) else {}
+    return {
+        "market_id": market.id,
+        "dispute_id": dispute.id,
+        "proposed_outcome_index": dispute.proposed_outcome_index,
+        "reproposed_outcome_index": ev_meta.get("reproposed_outcome_index"),
+        "dispute_deadline": dispute.dispute_deadline.isoformat(),
+        "market_status": market.status,
+        "rules_hash": ev_meta.get("rules_hash"),
+        "updates": ev_meta.get("updates", []),
         "evidence": dispute.evidence_json,
     }
 
@@ -158,7 +235,10 @@ async def finalize(
         )
     ).scalars().first()
     market = await settlement.finalize_resolution(
-        session, market, body.winning_outcome_index
+        session,
+        market,
+        body.winning_outcome_index,
+        resolve_invalid=body.resolve_invalid,
     )
     if prior_dispute and isinstance(prior_dispute.evidence_json, dict):
         stake_id = prior_dispute.evidence_json.get("agx_dispute_stake_id")
@@ -168,7 +248,7 @@ async def finalize(
                 await agx.resolve_dispute(
                     session,
                     stake_id,
-                    upheld=(body.winning_outcome_index != orig_idx),
+                    upheld=(market.winning_outcome_index != orig_idx),
                 )
             except agx.AgxError as exc:
                 logger.warning(
@@ -191,6 +271,7 @@ async def finalize(
         "market_id": market.id,
         "status": market.status,
         "winning_outcome_index": market.winning_outcome_index,
+        "resolved_invalid": market.winning_outcome_index == settlement.INVALID_OUTCOME_INDEX,
     }
 
 
@@ -263,6 +344,7 @@ async def resolution_markets(session: AsyncSession = Depends(get_async_session))
         event = (
             await session.execute(select(Event).where(Event.id == m.event_id))
         ).scalar_one_or_none()
+        ev_meta = dispute.evidence_json if (dispute and isinstance(dispute.evidence_json, dict)) else {}
         out.append(
             {
                 "market_id": m.id,
@@ -270,15 +352,19 @@ async def resolution_markets(session: AsyncSession = Depends(get_async_session))
                 "event_title": event.title if event else None,
                 "outcomes": m.outcomes,
                 "market_status": m.status,
+                "rules_hash": ev_meta.get("rules_hash") or settlement.compute_rules_hash(m, event),
                 "dispute_status": dispute.status if dispute else None,
+                "was_disputed": bool(ev_meta.get("was_disputed", False)),
                 "proposed_outcome_index": (
                     dispute.proposed_outcome_index if dispute else None
                 ),
+                "reproposed_outcome_index": ev_meta.get("reproposed_outcome_index"),
                 "proposer_address": dispute.proposer_address if dispute else None,
                 "bond_amount": float(dispute.bond_amount) if dispute else None,
                 "dispute_deadline": (
                     dispute.dispute_deadline.isoformat() if dispute else None
                 ),
+                "updates": ev_meta.get("updates", []),
                 "evidence": dispute.evidence_json if dispute else None,
             }
         )

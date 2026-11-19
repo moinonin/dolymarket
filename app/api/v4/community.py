@@ -213,13 +213,14 @@ async def create_community_market(
         await agx.ensure_market_bond(session, user.id, market.id)
     if funded > 0:
         await amm.deposit_liquidity(session, market, user.id, funded)
-    from app.services import oracle
+    from app.services import oracle, settlement
 
     return {
         "event_id": event.id,
         "slug": event.slug,
         "market_id": market.id,
         "condition_id": market.condition_id,
+        "rules_hash": settlement.compute_rules_hash(market, event),
         "tier": market.tier,
         "status": market.status,
         "oracle_feed": market.oracle_feed,
@@ -398,11 +399,14 @@ async def update_community_market(
     if market.oracle_feed and not market.oracle_comparator:
         market.oracle_comparator = ">="
 
+    from app.services import settlement
+
     await session.flush()
     end_dt = event.end_date if event is not None else None
     return {
         "market_id": market.id,
         "status": market.status,
+        "rules_hash": settlement.compute_rules_hash(market, event),
         "title": event.title if event is not None else None,
         "question": market.question,
         "resolution_criteria": market.resolution_criteria,

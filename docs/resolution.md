@@ -42,8 +42,11 @@ AlgoXen adopts Kalshi's 3-clause rulebook for clarity and source integrity, with
    - **Qualitative markets** validate the submitted `source_url` against approved Source Agencies, check any numeric threshold deterministically, and verify entailment via `oracle-s1`. Contradictory or non-whitelisted submissions are rejected (`HTTP 422`).
    - **Expired markets with no Source Agency data** resolve deterministically to **`NO`**.
    - Every valid proposal opens a **2-hour dispute window**.
-3. **Dispute (`DISPUTED`, optional)**: During the 2-hour window, any signed-in trader can challenge a proposed outcome by staking a **100 AGX counter-bond** on the **Resolution** page. Disputed markets pause for manual review; if the dispute is upheld, the 100 AGX stake is returned plus a **20% AGX reward**.
+3. **Dispute (`DISPUTED`, optional)**: During the 2-hour window, any signed-in trader can challenge a proposed outcome by staking a **100 AGX counter-bond** on the **Resolution** page. Disputed markets pause for review; if the dispute is upheld, the 100 AGX stake is returned plus a **20% AGX reward**.
+   - **Single Re-Proposal (`REPROPOSED`)**: After a first dispute, an operator may issue one corrected re-proposal (`POST /api/v4/prediction/resolution/repropose`), opening a fresh 2-hour challenge window. If disputed a second time, no further re-proposal is permitted and the market must be finalized directly.
+   - **Immutable `rules_hash` & Audit Trail**: Every market exposes a deterministic SHA-256 `rules_hash` (locked once funded) and an append-only `updates[]` timeline (`PROPOSED → DISPUTED → REPROPOSED → FINALIZED`).
 4. **Finalize (`RESOLVED`)**: Uncontested proposals finalize automatically once the 2-hour window expires. Winning shares redeem 1:1 for **$1.00 USDC** (`$0.00` for losing shares), and AMM liquidity providers can claim their pool share via **Redeem LP**.
+   - **Cancelled / Ambiguous 50-50 Settlement (`INVALID`)**: If an event is cancelled, postponed indefinitely, or cannot be resolved cleanly, finalization with `resolve_invalid=true` (`winning_outcome_index = -1`) pays **$0.50 USDC** per YES share and **$0.50 USDC** per NO share, with AMM LP equity computed against the exact 50/50 liability.
 
 ---
 

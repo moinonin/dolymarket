@@ -6,6 +6,8 @@ winning outcome tokens ($1.00 USDC per share; losing shares pay $0.00).
 """
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import hashlib
+import json
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -17,6 +19,61 @@ from app.services.markets import ensure_market_open_for_trading
 DISPUTE_WINDOW = timedelta(hours=2)
 PROPOSAL_BOND = Decimal(50)
 MIN_DISPUTE_BOND = Decimal("100")
+INVALID_OUTCOME_INDEX = -1
+
+
+def compute_rules_hash(market: Market, event: Event | None = None) -> str:
+    """Compute deterministic SHA-256 hash of market rules (Polymarket ancillaryData parity)."""
+    end_iso = None
+    if event is not None and event.end_date is not None:
+        end_dt = (
+            event.end_date
+            if event.end_date.tzinfo is not None
+            else event.end_date.replace(tzinfo=UTC)
+        )
+        end_iso = end_dt.astimezone(UTC).isoformat()
+    payload = {
+        "question": (market.question or "").strip(),
+        "resolution_criteria": (market.resolution_criteria or "").strip(),
+        "outcomes": list(market.outcomes or []),
+        "end_date": end_iso,
+        "oracle_feed": market.oracle_feed,
+        "oracle_threshold": (
+            str(market.oracle_threshold) if market.oracle_threshold is not None else None
+        ),
+        "oracle_comparator": market.oracle_comparator,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "0x" + hashlib.sha256(canonical).hexdigest()
+
+
+def _append_audit_update(
+    dispute: OracleDispute,
+    event_name: str,
+    *,
+    outcome_index: int | None = None,
+    actor: str | None = None,
+    note: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    """Append an immutable state-transition entry to dispute.evidence_json['updates']."""
+    ev = dict(dispute.evidence_json) if isinstance(dispute.evidence_json, dict) else {}
+    updates = list(ev.get("updates") or [])
+    entry: dict = {
+        "event": event_name,
+        "timestamp": _now().isoformat(),
+    }
+    if outcome_index is not None:
+        entry["outcome_index"] = outcome_index
+    if actor:
+        entry["actor"] = actor
+    if note:
+        entry["note"] = note
+    updates.append(entry)
+    ev["updates"] = updates
+    if extra:
+        ev.update(extra)
+    dispute.evidence_json = ev
 
 
 def _now() -> datetime:
@@ -109,6 +166,11 @@ async def propose_resolution(
     if existing is not None:
         raise HTTPException(status_code=409, detail="Resolution already proposed")
 
+    event = (
+        await session.execute(select(Event).where(Event.id == market.event_id))
+    ).scalar_one_or_none()
+    rules_hash = compute_rules_hash(market, event)
+
     dispute = OracleDispute(
         market_id=market.id,
         proposed_outcome_index=proposed_outcome_index,
@@ -116,6 +178,19 @@ async def propose_resolution(
         bond_amount=PROPOSAL_BOND,
         dispute_deadline=_now() + DISPUTE_WINDOW,
         status="PROPOSED",
+        evidence_json={
+            "rules_hash": rules_hash,
+            "was_disputed": False,
+            "reproposed_outcome_index": None,
+            "updates": [
+                {
+                    "event": "PROPOSED",
+                    "outcome_index": proposed_outcome_index,
+                    "actor": "uma-optimistic-oracle",
+                    "timestamp": _now().isoformat(),
+                }
+            ],
+        },
     )
     session.add(dispute)
     market.status = "IN_RESOLUTION"
@@ -163,20 +238,128 @@ async def dispute_proposal(
         )
     dispute.status = "DISPUTED"
     market.status = "DISPUTED"
+    _append_audit_update(
+        dispute,
+        "DISPUTED",
+        outcome_index=dispute.proposed_outcome_index,
+        note=f"counter_bond={counter_bond}",
+        extra={"was_disputed": True},
+    )
+    return dispute
+
+
+async def repropose_resolution(
+    session: AsyncSession,
+    market: Market,
+    reproposed_outcome_index: int,
+    *,
+    actor: str = "admin",
+    source_url: str | None = None,
+    evidence_text: str | None = None,
+    note: str | None = None,
+) -> OracleDispute:
+    """Polymarket-style single re-proposal after a first dispute.
+
+    Allows correcting a disputed proposal once with a fresh 2-hour challenge window.
+    A second dispute cannot be reproposed and must be finalized directly.
+    """
+    locked_market = (
+        await session.execute(
+            select(Market).where(Market.id == market.id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_market is not None:
+        market = locked_market
+    if market.status != "DISPUTED":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Market must be DISPUTED to repropose (current: {market.status})",
+        )
+    if reproposed_outcome_index < 0 or reproposed_outcome_index >= len(market.outcomes or []):
+        raise HTTPException(status_code=422, detail="Invalid reproposed outcome index")
+
+    dispute = (
+        await session.execute(
+            select(OracleDispute)
+            .where(
+                OracleDispute.market_id == market.id,
+                OracleDispute.status == "DISPUTED",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if dispute is None:
+        raise HTTPException(status_code=404, detail="No disputed resolution found")
+
+    ev_meta = dispute.evidence_json if isinstance(dispute.evidence_json, dict) else {}
+    if ev_meta.get("reproposed_outcome_index") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Resolution was already reproposed once; finalize directly",
+        )
+
+    if source_url or evidence_text:
+        from app.services.oracle_verifier import verify_resolution_evidence
+
+        outcome_label = str((market.outcomes or [])[reproposed_outcome_index])
+        verdict = await verify_resolution_evidence(
+            market.question,
+            outcome_label,
+            source_url=source_url,
+            evidence_text=evidence_text,
+            resolution_criteria=market.resolution_criteria,
+            oracle_threshold=(
+                float(market.oracle_threshold) if market.oracle_threshold is not None else None
+            ),
+            oracle_comparator=market.oracle_comparator,
+        )
+        if verdict["verdict"] == "CONTRADICTS" and float(verdict["confidence"]) >= 0.85:
+            raise HTTPException(
+                status_code=422,
+                detail="Submitted evidence contradicts reproposed outcome",
+            )
+
+    dispute.proposed_outcome_index = reproposed_outcome_index
+    dispute.status = "PROPOSED"
+    dispute.dispute_deadline = _now() + DISPUTE_WINDOW
+    market.status = "IN_RESOLUTION"
+    extra: dict = {"reproposed_outcome_index": reproposed_outcome_index}
+    if source_url:
+        extra["repropose_source_url"] = source_url
+    if evidence_text:
+        extra["repropose_evidence_text"] = evidence_text
+    _append_audit_update(
+        dispute,
+        "REPROPOSED",
+        outcome_index=reproposed_outcome_index,
+        actor=actor,
+        note=note,
+        extra=extra,
+    )
+    await sync_event_status(session, market.event_id)
     return dispute
 
 
 async def finalize_resolution(
-    session: AsyncSession, market: Market, winning_outcome_index: int
+    session: AsyncSession,
+    market: Market,
+    winning_outcome_index: int,
+    *,
+    resolve_invalid: bool = False,
 ) -> Market:
     if market.status not in ("IN_RESOLUTION", "DISPUTED"):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot resolve market in status {market.status}",
         )
-    if winning_outcome_index < 0 or winning_outcome_index >= len(market.outcomes or []):
-        raise HTTPException(status_code=422, detail="Invalid winning outcome index")
-    market.winning_outcome_index = winning_outcome_index
+    if resolve_invalid or winning_outcome_index == INVALID_OUTCOME_INDEX:
+        effective_idx = INVALID_OUTCOME_INDEX
+    else:
+        if winning_outcome_index < 0 or winning_outcome_index >= len(market.outcomes or []):
+            raise HTTPException(status_code=422, detail="Invalid winning outcome index")
+        effective_idx = winning_outcome_index
+
+    market.winning_outcome_index = effective_idx
     market.status = "RESOLVED"
     await sync_event_status(session, market.event_id)
     dispute = (
@@ -188,14 +371,24 @@ async def finalize_resolution(
     ).scalars().first()
     if dispute is not None:
         dispute.status = "FINALIZED"
-        dispute.proposed_outcome_index = winning_outcome_index
+        dispute.proposed_outcome_index = effective_idx
+        _append_audit_update(
+            dispute,
+            "FINALIZED",
+            outcome_index=effective_idx,
+            note="INVALID_50_50" if effective_idx == INVALID_OUTCOME_INDEX else None,
+            extra={"resolved_invalid": effective_idx == INVALID_OUTCOME_INDEX},
+        )
     return market
 
 
 async def payout_for_token(market: Market, token: OutcomeToken) -> Decimal:
-    """Settlement invariant: winning token == 1.00, losing token == 0.00."""
+    """Settlement invariant: winning=1.00, losing=0.00, INVALID/CANCELLED (-1)=0.50 split."""
     if market.status != "RESOLVED" or market.winning_outcome_index is None:
         return Decimal(0)
+    if market.winning_outcome_index == INVALID_OUTCOME_INDEX:
+        n_outcomes = max(2, len(market.outcomes or []))
+        return (Decimal("1.00") / Decimal(n_outcomes)).quantize(Decimal("0.01"))
     return (
         Decimal("1.00")
         if token.outcome_index == market.winning_outcome_index

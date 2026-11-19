@@ -338,10 +338,17 @@ async def redeem_lp(session: AsyncSession, market: Market, user_id: str) -> dict
     if lp is None or Decimal(str(lp.lp_shares)) <= 0:
         raise HTTPException(status_code=404, detail="No LP shares to redeem")
 
-    winning_liability = max(
-        Decimal("0"),
-        Decimal(str(pool.q_yes if market.winning_outcome_index == 0 else pool.q_no)),
-    )
+    if market.winning_outcome_index == -1:
+        # 50/50 INVALID/CANCELLED split: every YES and NO share redeems for $0.50
+        winning_liability = collateral.q4(
+            (max(Decimal("0"), Decimal(str(pool.q_yes))) + max(Decimal("0"), Decimal(str(pool.q_no))))
+            * Decimal("0.50")
+        )
+    else:
+        winning_liability = max(
+            Decimal("0"),
+            Decimal(str(pool.q_yes if market.winning_outcome_index == 0 else pool.q_no)),
+        )
     remaining_equity = max(Decimal("0"), Decimal(str(pool.pool_usdc)) - winning_liability)
     total_shares = Decimal(str(pool.total_lp_shares))
     user_shares = Decimal(str(lp.lp_shares))
