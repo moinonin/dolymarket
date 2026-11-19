@@ -84,9 +84,7 @@ function Shell() {
 
   let page: React.ReactNode
   if (section === 'home') {
-    page = user ? (
-      <LiveMarketsPage onOpenMarket={(id) => navigate(`live/market/${id}`)} />
-    ) : (
+    page = (
       <HomePage
         onOpenEvent={openEvent}
         onOpenAuth={openAuth}

@@ -2,11 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Coins,
   Fingerprint,
   Flame,
   Keyboard,
+  Newspaper,
   Percent,
   Radio,
   Search,
@@ -26,6 +30,80 @@ interface TickerRow {
 }
 
 type FeedMode = 'TRENDING' | 'NEW' | 'ENDING_SOON' | 'ALL'
+
+const HOME_CATEGORIES = [
+  'Trending',
+  'New',
+  'Politics',
+  'Sports',
+  'Culture',
+  'Crypto',
+  'Climate',
+  'Economics',
+  'Companies',
+  'Financials',
+  'Tech & Science',
+  'Health',
+  'World',
+] as const
+
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  Politics: ['politics', 'election', 'president', 'congress', 'senate', 'white house', 'policy'],
+  Sports: ['sports', 'nba', 'nfl', 'mlb', 'nhl', 'soccer', 'ufc', 'tennis', 'golf', 'champion'],
+  Culture: ['pop culture', 'culture', 'oscars', 'grammys', 'box office', 'music', 'film', 'tv'],
+  Crypto: ['crypto', 'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'defi', 'etf'],
+  Climate: ['climate', 'weather', 'temperature', 'hurricane', 'emissions', 'energy'],
+  Economics: ['macro', 'economics', 'fed', 'fomc', 'cpi', 'inflation', 'gdp', 'jobs', 'rates', 'recession'],
+  Companies: ['companies', 'ipo', 'anthropic', 'openai', 'apple', 'tesla', 'nvidia', 'earnings', 'merger'],
+  Financials: ['financials', 's&p', 'nasdaq', 'treasury', 'yield', 'stocks', 'forex', 'gold'],
+  'Tech & Science': ['tech', 'science', 'ai', 'space', 'spacex', 'chips', 'quantum', 'robotics'],
+  Health: ['health', 'fda', 'biotech', 'pharma', 'vaccine', 'cdc', 'who'],
+  World: ['world', 'geopolitics', 'europe', 'china', 'tariffs', 'trade', 'un', 'war'],
+}
+
+const CATEGORY_SUBTOPICS: Record<string, string[]> = {
+  Politics: ['Elections', 'White House', 'Congress', 'Supreme Court', 'Foreign Policy', 'Approvals'],
+  Sports: ['NBA', 'NFL', 'MLB', 'Soccer', 'UFC & Boxing', 'Championships', 'MVP & Awards'],
+  Culture: ['Oscars & Film', 'Grammys & Music', 'Box Office', 'Streaming & TV', 'Social & Creators'],
+  Crypto: ['Bitcoin', 'Ethereum', 'Solana', 'Spot ETFs', 'Stablecoins', 'Regulation'],
+  Climate: ['Daily Temps', 'Hurricanes', 'Precipitation', 'Clean Energy', 'Emissions'],
+  Economics: ['Fed Rates', 'Inflation & CPI', 'Jobs & NFP', 'GDP Growth', 'Recession', 'Tariffs'],
+  Companies: ['IPOs', 'AI Labs', 'Earnings', 'M&A', 'Tech Giants', 'CEO Changes'],
+  Financials: ['S&P 500', 'Nasdaq 100', 'Treasury Yields', 'Oil & Commodities', 'FX & Dollar'],
+  'Tech & Science': ['AI & Models', 'Space & Rockets', 'Semiconductors', 'Robotics', 'Consumer Tech'],
+  Health: ['FDA Approvals', 'Biotech', 'Public Health', 'Clinical Trials'],
+  World: ['US-China', 'Europe & ECB', 'Middle East', 'Trade & Tariffs', 'Global Elections'],
+}
+
+const CATEGORY_WIKI_TOPIC: Record<string, string> = {
+  Macro: 'Federal_Reserve',
+  Economics: 'Federal_Reserve',
+  Crypto: 'Bitcoin',
+  Politics: 'United_States_Capitol',
+  Sports: 'National_Basketball_Association',
+  Tech: 'Artificial_intelligence',
+  'Tech & Science': 'Artificial_intelligence',
+  'Pop Culture': 'Academy_Awards',
+  Culture: 'Academy_Awards',
+  Climate: 'Climate_change',
+  Companies: 'Initial_public_offering',
+  Financials: 'Wall_Street',
+  Health: 'World_Health_Organization',
+  World: 'United_Nations',
+}
+
+function inferWikiTopic(event: Event): string {
+  const hay = `${event.title} ${event.description || ''} ${(event.tags || []).join(' ')}`.toLowerCase()
+  if (hay.includes('bitcoin') || hay.includes('btc')) return 'Bitcoin'
+  if (hay.includes('ethereum') || hay.includes('eth')) return 'Ethereum'
+  if (hay.includes('anthropic') || hay.includes('openai') || hay.includes('ai')) return 'Artificial_intelligence'
+  if (hay.includes('fed') || hay.includes('rate') || hay.includes('fomc')) return 'Federal_Reserve'
+  if (hay.includes('inflation') || hay.includes('cpi')) return 'Inflation'
+  if (hay.includes('president') || hay.includes('election') || hay.includes('trump')) return 'White_House'
+  if (hay.includes('nba') || hay.includes('basketball')) return 'National_Basketball_Association'
+  if (hay.includes('nfl') || hay.includes('super bowl')) return 'National_Football_League'
+  return CATEGORY_WIKI_TOPIC[event.category] || 'New_York_Stock_Exchange'
+}
 
 function eventCountdown(endDate: string | null): string | null {
   if (!endDate) return null
@@ -50,9 +128,14 @@ export default function HomePage({
   const [events, setEvents] = useState<Event[]>([])
   const [corpusTags, setCorpusTags] = useState<string[]>([])
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
+  const [topicImages, setTopicImages] = useState<Record<string, string>>({})
+  const [activeCategory, setActiveCategory] = useState<string>('Trending')
   const [feedMode, setFeedMode] = useState<FeedMode>('TRENDING')
   const [selectedTag, setSelectedTag] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [subDropOpen, setSubDropOpen] = useState(true)
+  const [topicsDropOpen, setTopicsDropOpen] = useState(true)
+  const [statusDropOpen, setStatusDropOpen] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,13 +145,17 @@ export default function HomePage({
       try {
         setLoading(true)
         setError(null)
-        const [res, tagRes] = await Promise.all([
+        const [res, tagRes, liveTagRes] = await Promise.all([
           api.listEvents({ sort_by: 'liquidity', limit: 100 }),
           api.listTags().catch(() => ({ tags: [] as string[] })),
+          api.getLiveTags().catch(() => ({ tags: [] as string[] })),
         ])
         if (cancelled) return
         setEvents(res.events)
-        setCorpusTags(tagRes.tags || [])
+        const mergedTags = Array.from(
+          new Set([...(tagRes.tags || []), ...(liveTagRes.tags || [])].map((t) => t.trim()).filter(Boolean))
+        )
+        setCorpusTags(mergedTags)
 
         const preview = res.events.filter((e) => e.status === 'ACTIVE').slice(0, 12)
         const rows: Record<string, TickerRow> = {}
@@ -91,6 +178,26 @@ export default function HomePage({
           })
         )
         if (!cancelled) setTickers(rows)
+
+        // Fetch free CORS-enabled topic thumbnails from Wikimedia REST API
+        const topics = Array.from(new Set(res.events.slice(0, 12).map(inferWikiTopic)))
+        const imgs: Record<string, string> = {}
+        await Promise.all(
+          topics.map(async (topic) => {
+            try {
+              const r = await fetch(
+                `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`
+              )
+              if (!r.ok) return
+              const data = await r.json()
+              const src = data?.thumbnail?.source || data?.originalimage?.source
+              if (typeof src === 'string') imgs[topic] = src
+            } catch {
+              /* image fallback handled in card */
+            }
+          })
+        )
+        if (!cancelled) setTopicImages(imgs)
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Could not load market data')
       } finally {
@@ -122,21 +229,50 @@ export default function HomePage({
     }
     return Array.from(scores.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+      .slice(0, 20)
       .map(([tag]) => tag)
   }, [events, corpusTags])
+
+  const eventMatchesCategory = (ev: Event, cat: string): boolean => {
+    if (cat === 'Trending' || cat === 'New') return true
+    const aliases = CATEGORY_ALIASES[cat] || [cat.toLowerCase()]
+    const hay = `${ev.category} ${ev.title} ${ev.description || ''} ${(ev.tags || []).join(' ')}`.toLowerCase()
+    return aliases.some((kw) => hay.includes(kw))
+  }
+
+  const categoryTopics = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const ev of events) {
+      if (!eventMatchesCategory(ev, activeCategory)) {
+        continue
+      }
+      for (const raw of ev.tags || []) {
+        const t = raw?.trim()
+        if (t) counts.set(t, (counts.get(t) || 0) + 1)
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag, count]) => ({ tag, count }))
+  }, [events, activeCategory])
 
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const now = Date.now()
     let list = events.filter((ev) => (feedMode === 'ALL' ? true : ev.status === 'ACTIVE'))
 
+    if (activeCategory !== 'Trending' && activeCategory !== 'New') {
+      list = list.filter((ev) => eventMatchesCategory(ev, activeCategory))
+    }
+
     if (selectedTag !== 'ALL') {
       const target = selectedTag.toLowerCase()
       list = list.filter(
         (ev) =>
           ev.category.toLowerCase() === target ||
-          (ev.tags || []).some((t) => t.toLowerCase() === target)
+          ev.title.toLowerCase().includes(target) ||
+          (ev.description || '').toLowerCase().includes(target) ||
+          (ev.tags || []).some((t) => t.toLowerCase().includes(target))
       )
     }
     if (q) {
@@ -161,166 +297,95 @@ export default function HomePage({
       })
     }
     return sorted
-  }, [events, feedMode, selectedTag, searchQuery])
+  }, [events, activeCategory, feedMode, selectedTag, searchQuery])
 
-  const preview = filteredEvents.slice(0, 8)
+  const preview = filteredEvents.slice(0, 12)
+  const featured = preview[0] ?? events[0] ?? null
+  const featuredTicker = featured ? tickers[featured.id] : undefined
+  const featuredYesCents = featuredTicker?.price != null ? Math.round(featuredTicker.price * 100) : null
+  const featuredNoCents = featuredYesCents != null ? 100 - featuredYesCents : null
   const openMarkets = events.filter((e) => e.status === 'ACTIVE').length
   const resolvedMarkets = events.filter((e) => e.status === 'RESOLVED').length
   const trackedVolume = events.reduce((acc, e) => acc + (e.total_volume || 0), 0)
+  const isTrendingHome = activeCategory === 'Trending'
+  const subtopics = CATEGORY_SUBTOPICS[activeCategory] || []
+
+  const selectCategory = (cat: string) => {
+    setActiveCategory(cat)
+    setSelectedTag('ALL')
+    if (cat === 'New') setFeedMode('NEW')
+    else if (cat === 'Trending') setFeedMode('TRENDING')
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1840px] px-4 sm:px-6 lg:px-8 2xl:px-12 pb-24">
-      {/* Hero */}
-      <section className="relative overflow-hidden pt-16 pb-14 font-geist-mono">
-        {/* Animated backdrop — drifting gradients + grid (swap for generated image later) */}
-        <div
-          className="hero-drift pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(60% 50% at 20% 10%, rgba(16,185,129,0.10), transparent 60%), radial-gradient(50% 40% at 85% 25%, rgba(59,130,246,0.08), transparent 60%)',
-          }}
-        />
-        <div className="hero-grid pointer-events-none absolute inset-0" />
-        <div className="pointer-events-none absolute -top-40 left-1/2 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-emerald-500/10 blur-3xl" />
-        {/* Decorative live probability lines */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 w-full opacity-70 [mask-image:linear-gradient(to_bottom,transparent,black_45%)] sm:h-56">
-          <HeroCanvas />
-        </div>
-        <div className="relative grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
-          <div className="lg:col-span-7">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
-              <Sparkles className="h-3 w-3" />
-              Sub-cent CLOB. Smart AMM Backstop.
-            </span>
-            <h1 className="mt-5 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-              Trade Reality{' '}
-              <span className="text-emerald-400">on Institutional Order Books</span>
-            </h1>
-            <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400">
-              Route every trade across live order books and an AMM backstop, see
-              oracle clarity before you enter, and redeem winning shares 1:1 in
-              USDC straight to your wallet.
-            </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => onOpenAuth('register')}
-                className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
-              >
-                Create free account
-              </button>
+      {/* Kalshi-Style Top Category & Trending Tag Ribbon */}
+      <section className="pt-6 pb-4">
+        <div className="flex flex-col gap-3 border-b border-slate-800/80 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              {HOME_CATEGORIES.map((cat) => {
+                const active = activeCategory === cat
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => selectCategory(cat)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      active
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
+                    }`}
+                  >
+                    {cat === 'Trending' && <Flame className="h-3.5 w-3.5" />}
+                    {cat}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search topics or markets…"
+                  className="w-48 rounded-lg border border-slate-800 bg-slate-900/90 py-1.5 pl-8 pr-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500/50 sm:w-64"
+                />
+              </div>
               <button
                 onClick={onBrowseMarkets}
-                className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/40 hover:text-white"
+                className="rounded-lg border border-slate-800 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
               >
-                Browse live markets
+                All Markets →
               </button>
-            </div>
-
-            <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <HeroStat
-                label="Open markets"
-                value={loading ? null : `${openMarkets}`}
-              />
-              <HeroStat
-                label="Markets resolved"
-                value={loading ? null : `${resolvedMarkets}`}
-              />
-              <HeroStat
-                label="Tracked volume"
-                value={loading ? null : `$${Math.round(trackedVolume).toLocaleString()}`}
-              />
-            </div>
-          </div>
-
-          <div className="lg:col-span-5">
-            <HeroVisual
-              onExplore={() => {
-                if (preview[0]?.slug) {
-                  onOpenEvent(preview[0].slug)
-                } else {
-                  onBrowseMarkets()
-                }
-              }}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Trending Markets Feed (Kalshi-style default) */}
-      <section className="mt-6">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="flex items-center gap-2 text-xl font-semibold text-white">
-              <Flame className="h-5 w-5 text-emerald-400" />
-              Trending markets
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Ranked by live volume across active tags and order books.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search trending topics…"
-                className="w-48 rounded-lg border border-slate-800 bg-slate-900/80 py-1.5 pl-8 pr-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500/50 sm:w-56"
-              />
-            </div>
-            <button
-              onClick={onBrowseMarkets}
-              className="rounded-lg border border-slate-800 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
-            >
-              View all →
-            </button>
-          </div>
-        </div>
-
-        {/* Feed mode tabs + Dynamic Trending Tag strip */}
-        <div className="mb-4 flex flex-col gap-2.5 border-b border-slate-800/80 pb-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(
-              [
-                { key: 'TRENDING', label: 'Trending', icon: Flame },
-                { key: 'NEW', label: 'New', icon: Sparkles },
-                { key: 'ENDING_SOON', label: 'Ending Soon', icon: Clock },
-                { key: 'ALL', label: 'All Markets', icon: Activity },
-              ] as const
-            ).map(({ key, label, icon: Icon }) => (
               <button
-                key={key}
-                onClick={() => setFeedMode(key)}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                  feedMode === key
-                    ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/40'
-                    : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200'
-                }`}
+                onClick={() => onOpenAuth('register')}
+                className="rounded-lg bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/25"
               >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
+                Sign up
               </button>
-            ))}
+            </div>
           </div>
 
-          {trendingTags.length > 0 && (
+          {isTrendingHome && trendingTags.length > 0 && (
             <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
               <button
                 onClick={() => setSelectedTag('ALL')}
-                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition ${
                   selectedTag === 'ALL'
                     ? 'bg-white text-slate-950 font-semibold'
                     : 'border border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-white'
                 }`}
               >
-                All Topics
+                Top Stories
               </button>
               {trendingTags.map((tag) => (
                 <button
                   key={tag}
                   onClick={() => setSelectedTag(selectedTag === tag ? 'ALL' : tag)}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                  className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-medium transition ${
                     selectedTag === tag
                       ? 'bg-emerald-500 text-slate-950 font-semibold'
                       : 'border border-slate-800 bg-slate-900/60 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300'
@@ -332,50 +397,411 @@ export default function HomePage({
             </div>
           )}
         </div>
-
-        {error ? (
-          <div className="rounded-2xl border border-red-800/60 bg-red-950/40 p-5 text-sm text-red-200">
-            {error}
-            <button
-              onClick={() => window.location.reload()}
-              className="ml-3 underline underline-offset-2"
-            >
-              Retry
-            </button>
-          </div>
-        ) : loading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="rounded-2xl border border-slate-800/70 p-5">
-                <Skeleton className="mb-3 h-3 w-20" />
-                <Skeleton className="mb-5 h-5 w-full" />
-                <Skeleton className="mb-2 h-2 w-full" />
-                <Skeleton className="h-2 w-2/3" />
-              </div>
-            ))}
-          </div>
-        ) : preview.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-800 py-14 text-center">
-            <BarChart3 className="mx-auto mb-3 h-7 w-7 text-slate-600" />
-            <p className="text-sm font-medium text-slate-300">No markets listed yet</p>
-            <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500">
-              Markets appear here as soon as they are created in the resolution
-              portal.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
-            {preview.map((ev) => (
-              <MarketPreviewCard
-                key={ev.id}
-                event={ev}
-                ticker={tickers[ev.id]}
-                onOpen={onOpenEvent}
-              />
-            ))}
-          </div>
-        )}
       </section>
+
+      {/* Auto-sliding Visual News & Market Image Strip (slides left continuously, pauses on hover) */}
+      {!loading && (filteredEvents.length > 0 || events.length > 0) && (
+        <NewsVisualMarquee
+          events={(filteredEvents.length > 0 ? filteredEvents : events).slice(0, 8)}
+          tickers={tickers}
+          topicImages={topicImages}
+          onOpen={onOpenEvent}
+        />
+      )}
+
+      {isTrendingHome ? (
+        <>
+          {/* Trending Home: Featured Story + Two-line Chart + Fear & Greed Meter */}
+          <section className="mb-8 grid grid-cols-1 items-stretch gap-5 lg:grid-cols-12">
+            <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-6 font-geist-mono lg:col-span-7">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 w-full opacity-55 [mask-image:linear-gradient(to_bottom,transparent,black_45%)]">
+                <HeroCanvas />
+              </div>
+              <div className="relative">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                    <Newspaper className="h-3 w-3" />
+                    {featured ? `Lead Story · ${featured.category}` : 'Trending Brief'}
+                  </span>
+                  {featured && (
+                    <span className="font-mono tabular-nums text-xs text-slate-400">
+                      ${Math.round(featured.total_volume || 0).toLocaleString()} vol ·{' '}
+                      {featuredYesCents != null ? `${featuredYesCents}% Yes` : 'Live'}
+                    </span>
+                  )}
+                </div>
+
+                {featured ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onOpenEvent(featured.slug)}
+                      className="mt-3 block text-left text-xl font-bold leading-snug text-white transition hover:text-emerald-300 sm:text-2xl"
+                    >
+                      {featured.title}
+                    </button>
+                    {featured.description && (
+                      <p className="mt-1.5 line-clamp-2 max-w-2xl text-xs text-slate-400">
+                        {featured.description}
+                      </p>
+                    )}
+                    <div className="mt-5 flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => onOpenEvent(featured.slug)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25"
+                      >
+                        <span>Trade {featuredTicker?.symbol ?? 'Yes'}</span>
+                        <span className="font-mono tabular-nums">
+                          {featuredYesCents != null ? `${featuredYesCents}¢` : '—'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenEvent(featured.slug)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 px-4 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/25"
+                      >
+                        <span>Trade No</span>
+                        <span className="font-mono tabular-nums">
+                          {featuredNoCents != null ? `${featuredNoCents}¢` : '—'}
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-4">
+                    <h1 className="text-2xl font-bold text-white">Live Market Intelligence</h1>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Click any headline to open the underlying live order book.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative mt-6 grid grid-cols-3 gap-3 border-t border-slate-800/70 pt-4">
+                <HeroStat label="Active markets" value={loading ? null : `${openMarkets}`} />
+                <HeroStat label="Settled" value={loading ? null : `${resolvedMarkets}`} />
+                <HeroStat
+                  label="Tracked vol"
+                  value={loading ? null : `$${Math.round(trackedVolume).toLocaleString()}`}
+                />
+              </div>
+            </div>
+
+            <div className="lg:col-span-5">
+              <HeroVisual
+                onExplore={() => {
+                  if (featured?.slug) {
+                    onOpenEvent(featured.slug)
+                  } else {
+                    onBrowseMarkets()
+                  }
+                }}
+              />
+            </div>
+          </section>
+
+          {/* Trending News-Style Briefs (click opens prediction market) */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-300">
+                <Newspaper className="h-4 w-4 text-emerald-400" />
+                Trending Headlines &amp; Live Odds
+              </h2>
+              <span className="text-[11px] text-slate-500">Click any story to trade the market</span>
+            </div>
+
+            {error ? (
+              <div className="rounded-2xl border border-red-800/60 bg-red-950/40 p-5 text-sm text-red-200">
+                {error}
+                <button
+                  onClick={() => window.location.reload()}
+                  className="ml-3 underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : loading ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="rounded-2xl border border-slate-800/70 p-5">
+                    <Skeleton className="mb-3 h-3 w-20" />
+                    <Skeleton className="mb-5 h-5 w-full" />
+                    <Skeleton className="mb-2 h-2 w-full" />
+                    <Skeleton className="h-2 w-2/3" />
+                  </div>
+                ))}
+              </div>
+            ) : preview.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-800 py-14 text-center">
+                <BarChart3 className="mx-auto mb-3 h-7 w-7 text-slate-600" />
+                <p className="text-sm font-medium text-slate-300">No trending stories match</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5">
+                {preview.map((ev) => (
+                  <NewsMarketCard
+                    key={ev.id}
+                    event={ev}
+                    ticker={tickers[ev.id]}
+                    onOpen={onOpenEvent}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        /* Category / Tag View: Left Sidebar (Category + Subcategories & Topics Dropdowns) + Right Pure Markets & Charts */
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[248px_1fr]">
+          <aside className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 self-start lg:sticky lg:top-20">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Category
+                </div>
+                <h2 className="text-lg font-bold text-white">{activeCategory}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => selectCategory('Trending')}
+                className="rounded-lg border border-slate-800 px-2 py-1 text-[11px] text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300"
+              >
+                ← Trending
+              </button>
+            </div>
+
+            {/* Subcategories dropdown */}
+            <div className="border-b border-slate-800/80 pb-3">
+              <button
+                type="button"
+                onClick={() => setSubDropOpen((v) => !v)}
+                className="flex w-full items-center justify-between py-1 text-xs font-semibold uppercase tracking-wider text-slate-300"
+              >
+                <span>Subcategories</span>
+                {subDropOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+              {subDropOpen && (
+                <div className="mt-2 space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTag('ALL')}
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition ${
+                      selectedTag === 'ALL'
+                        ? 'bg-emerald-500/15 font-semibold text-emerald-300'
+                        : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+                    }`}
+                  >
+                    <span>All {activeCategory}</span>
+                  </button>
+                  {subtopics.map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => setSelectedTag(selectedTag === sub ? 'ALL' : sub)}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition ${
+                        selectedTag === sub
+                          ? 'bg-emerald-500/15 font-semibold text-emerald-300'
+                          : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+                      }`}
+                    >
+                      <span>{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Related Topics dropdown */}
+            {categoryTopics.length > 0 && (
+              <div className="border-b border-slate-800/80 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setTopicsDropOpen((v) => !v)}
+                  className="flex w-full items-center justify-between py-1 text-xs font-semibold uppercase tracking-wider text-slate-300"
+                >
+                  <span>Topics</span>
+                  {topicsDropOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </button>
+                {topicsDropOpen && (
+                  <div className="mt-2 space-y-1">
+                    {categoryTopics.map(({ tag, count }) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setSelectedTag(selectedTag === tag ? 'ALL' : tag)}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition ${
+                          selectedTag === tag
+                            ? 'bg-emerald-500/15 font-semibold text-emerald-300'
+                            : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+                        }`}
+                      >
+                        <span className="truncate">{tag}</span>
+                        <span className="font-mono text-[10px] text-slate-500">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Status / Sort dropdown */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setStatusDropOpen((v) => !v)}
+                className="flex w-full items-center justify-between py-1 text-xs font-semibold uppercase tracking-wider text-slate-300"
+              >
+                <span>Sort &amp; Status</span>
+                {statusDropOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+              {statusDropOpen && (
+                <div className="mt-2 space-y-1">
+                  {(
+                    [
+                      { key: 'TRENDING', label: 'Highest Volume' },
+                      { key: 'ENDING_SOON', label: 'Ending Soon' },
+                      { key: 'NEW', label: 'Newest' },
+                      { key: 'ALL', label: 'Include Resolved' },
+                    ] as const
+                  ).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFeedMode(key)}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition ${
+                        feedMode === key
+                          ? 'bg-slate-800 font-semibold text-white'
+                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                      }`}
+                    >
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          {/* Right side: Purely Charts & Markets */}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+              <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/65 p-5 xl:col-span-7">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 w-full opacity-40 [mask-image:linear-gradient(to_bottom,transparent,black_45%)]">
+                  <HeroCanvas />
+                </div>
+                <div className="relative">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                      <TrendingUp className="h-3 w-3" />
+                      Top in {activeCategory}
+                      {selectedTag !== 'ALL' ? ` · ${selectedTag}` : ''}
+                    </span>
+                    <span className="font-mono tabular-nums text-xs text-slate-400">
+                      {filteredEvents.length} market{filteredEvents.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  {preview[0] ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onOpenEvent(preview[0].slug)}
+                        className="mt-3 block text-left text-lg font-bold leading-snug text-white transition hover:text-emerald-300 sm:text-xl"
+                      >
+                        {preview[0].title}
+                      </button>
+                      {preview[0].description && (
+                        <p className="mt-1 line-clamp-2 text-xs text-slate-400">
+                          {preview[0].description}
+                        </p>
+                      )}
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onOpenEvent(preview[0].slug)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25"
+                        >
+                          <span>{tickers[preview[0].id]?.symbol ?? 'Yes'}</span>
+                          <span className="font-mono tabular-nums">
+                            {tickers[preview[0].id]?.price != null
+                              ? `${Math.round(tickers[preview[0].id].price! * 100)}¢`
+                              : 'Trade'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenEvent(preview[0].slug)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 text-xs font-bold text-rose-300 transition hover:bg-rose-500/25"
+                        >
+                          <span>No</span>
+                          <span className="font-mono tabular-nums">
+                            {tickers[preview[0].id]?.price != null
+                              ? `${100 - Math.round(tickers[preview[0].id].price! * 100)}¢`
+                              : 'Trade'}
+                          </span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-4">
+                      <h3 className="text-base font-bold text-white">
+                        {activeCategory} Markets
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-400">
+                        No open contracts match this filter yet. Try another topic or browse all markets.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative mt-5 grid grid-cols-3 gap-3 border-t border-slate-800/70 pt-3">
+                  <HeroStat label="Matching" value={`${filteredEvents.length}`} />
+                  <HeroStat
+                    label={`${activeCategory} vol`}
+                    value={`$${Math.round(
+                      filteredEvents.reduce((acc, e) => acc + (e.total_volume || 0), 0)
+                    ).toLocaleString()}`}
+                  />
+                  <HeroStat
+                    label="Top topic"
+                    value={categoryTopics[0]?.tag ?? activeCategory}
+                  />
+                </div>
+              </div>
+              <div className="xl:col-span-5">
+                <HeroVisual
+                  onExplore={() => {
+                    if (preview[0]?.slug) onOpenEvent(preview[0].slug)
+                    else onBrowseMarkets()
+                  }}
+                />
+              </div>
+            </div>
+
+            {preview.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-800 py-14 text-center">
+                <BarChart3 className="mx-auto mb-3 h-7 w-7 text-slate-600" />
+                <p className="text-sm font-medium text-slate-300">
+                  No markets in {activeCategory}
+                  {selectedTag !== 'ALL' ? ` · ${selectedTag}` : ''}
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {preview.map((ev) => (
+                  <MarketPreviewCard
+                    key={ev.id}
+                    event={ev}
+                    ticker={tickers[ev.id]}
+                    onOpen={onOpenEvent}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Features */}
       <section className="mt-20">
@@ -706,6 +1132,213 @@ function HeroCanvas() {
   }, [])
 
   return <canvas ref={ref} className="h-full w-full" aria-hidden="true" />
+}
+
+function NewsVisualMarquee({
+  events,
+  tickers,
+  topicImages,
+  onOpen,
+}: {
+  events: Event[]
+  tickers: Record<string, TickerRow>
+  topicImages: Record<string, string>
+  onOpen: (slug: string) => void
+}) {
+  const [index, setIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const swipeStartX = useRef<number | null>(null)
+  const total = events.length
+
+  useEffect(() => {
+    setIndex(0)
+  }, [total])
+
+  useEffect(() => {
+    if (paused || total <= 1) return
+    const timer = window.setInterval(() => {
+      setIndex((i) => (i + 1) % total)
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [paused, total])
+
+  if (total === 0) return null
+
+  const prev = () => setIndex((i) => (i - 1 + total) % total)
+  const next = () => setIndex((i) => (i + 1) % total)
+  const ordered = Array.from({ length: total }, (_, offset) => events[(index + offset) % total])
+
+  return (
+    <section
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onTouchStart={(e) => {
+        swipeStartX.current = e.touches[0]?.clientX ?? null
+      }}
+      onTouchEnd={(e) => {
+        if (swipeStartX.current == null) return
+        const dx = (e.changedTouches[0]?.clientX ?? swipeStartX.current) - swipeStartX.current
+        swipeStartX.current = null
+        if (Math.abs(dx) > 40) {
+          if (dx < 0) next()
+          else prev()
+        }
+      }}
+      className="relative mb-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/80 p-3 touch-pan-y"
+    >
+      <div className="relative">
+        {total > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="Slide left"
+              onClick={(e) => {
+                e.stopPropagation()
+                prev()
+              }}
+              className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/80 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Slide right"
+              onClick={(e) => {
+                e.stopPropagation()
+                next()
+              }}
+              className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-slate-700/80 bg-slate-950/80 p-2 text-white shadow-lg backdrop-blur-sm transition hover:border-emerald-500/60 hover:bg-slate-900"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        {ordered.slice(0, 4).map((ev, slotIdx) => {
+          const img = topicImages[inferWikiTopic(ev)]
+          const t = tickers[ev.id]
+          const yesPct = t?.price != null ? Math.round(t.price * 100) : null
+          return (
+            <button
+              key={ev.id}
+              type="button"
+              onClick={() => onOpen(ev.slug)}
+              className={`group relative flex aspect-[16/10] min-h-[220px] w-full flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[235px] lg:min-h-[250px] ${
+                slotIdx === 3 ? 'hidden 2xl:flex' : ''
+              }`}
+            >
+              {img ? (
+                <img
+                  src={img}
+                  alt={ev.title}
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full object-cover object-top opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85"
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-blue-950/80" />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent" />
+
+              <div className="relative z-10 p-4">
+                <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
+                  <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-emerald-300 backdrop-blur-sm">
+                    {ev.category}
+                  </span>
+                  <span className="font-mono tabular-nums text-white">
+                    {yesPct != null ? `${yesPct}% Yes · ` : ''}$
+                    {Math.round(ev.total_volume || 0).toLocaleString()}
+                  </span>
+                </div>
+                <p className="line-clamp-2 text-sm font-bold leading-snug text-white group-hover:text-emerald-300">
+                  {ev.title}
+                </p>
+              </div>
+            </button>
+          )
+        })}
+        </div>
+      </div>
+
+      {total > 1 && (
+        <div className="mt-2.5 flex justify-center gap-1.5">
+          {events.map((ev, i) => (
+            <button
+              key={ev.id}
+              type="button"
+              aria-label={`Slide ${i + 1}`}
+              onClick={() => setIndex(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === index ? 'w-5 bg-emerald-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function NewsMarketCard({
+  event,
+  ticker,
+  onOpen,
+}: {
+  event: Event
+  ticker?: TickerRow
+  onOpen: (slug: string) => void
+}) {
+  const yesPct = ticker?.price != null ? Math.round(ticker.price * 100) : null
+  const cd = eventCountdown(event.end_date)
+  const primaryTag = event.tags?.[0] || event.category
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(event.slug)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(event.slug)
+        }
+      }}
+      className="group flex cursor-pointer flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/65 p-5 text-left transition hover:border-emerald-500/40 hover:bg-slate-900"
+    >
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
+          <span className="inline-flex items-center gap-1 text-emerald-400">
+            <Newspaper className="h-3 w-3" />
+            {event.category} · {primaryTag}
+          </span>
+          {cd && <span className="text-slate-500">{cd}</span>}
+        </div>
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-white transition group-hover:text-emerald-300">
+          {event.title}
+        </h3>
+        {event.description && (
+          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-400">
+            {event.description}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 flex items-center justify-between border-t border-slate-800/80 pt-3 text-[11px]">
+        <div className="flex items-center gap-2">
+          <span className="font-mono tabular-nums font-semibold text-emerald-400">
+            {yesPct != null ? `${yesPct}% odds` : 'Live market'}
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="font-mono tabular-nums text-slate-400">
+            ${Math.round(event.total_volume || 0).toLocaleString()} vol
+          </span>
+        </div>
+        <span className="font-semibold text-slate-400 transition group-hover:text-emerald-300">
+          Trade →
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function MarketPreviewCard({

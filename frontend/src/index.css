@@ -71,9 +71,30 @@ summary {
   border-radius: var(--radius-sm);
 }
 
+/* Continuous left-sliding news & market image marquee */
+@keyframes news-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-news-marquee {
+  display: flex;
+  width: max-content;
+  animation: news-marquee 38s linear infinite;
+}
+
+.animate-news-marquee:hover {
+  animation-play-state: paused;
+}
+
 /* Respect reduced-motion on decorative animations while keeping instant UI feedback */
 @media (prefers-reduced-motion: reduce) {
   .hero-drift,
+  .animate-news-marquee,
   .animate-pulse,
   .animate-spin {
     animation-duration: 0.01ms !important;
