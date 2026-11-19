@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -118,6 +119,13 @@ async def deposit_liquidity(
         market = locked_market
     if market.status not in ("UNFUNDED", "ACTIVE"):
         raise HTTPException(status_code=409, detail=f"Cannot fund market in status {market.status}")
+    ev = (
+        await session.execute(select(Event).where(Event.id == market.event_id))
+    ).scalar_one_or_none()
+    if ev is not None and ev.end_date is not None:
+        end_dt = ev.end_date if ev.end_date.tzinfo is not None else ev.end_date.replace(tzinfo=UTC)
+        if end_dt <= datetime.now(UTC):
+            raise HTTPException(status_code=409, detail="Cannot fund an expired market past end_date")
     amount = collateral.q4(amount_usdc)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be positive")
@@ -148,6 +156,11 @@ async def deposit_liquidity(
         q_n = Decimal(str(pool.q_no))
         worst_liability = max(q_y, q_n)
         net_equity = existing_usdc - worst_liability
+        if (q_y > 0 or q_n > 0) and net_equity <= 0:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot deposit LP into an underwater AMM pool",
+            )
         valuation_base = net_equity if net_equity > 0 else existing_usdc
         if valuation_base > 0 and existing_shares > 0:
             minted_shares = collateral.q4(amount * existing_shares / valuation_base)

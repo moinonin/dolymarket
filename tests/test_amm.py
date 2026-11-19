@@ -36,6 +36,7 @@ async def test_amm_pool_lifecycle_fund_trade_and_redeem(client):
             "question": "Will ETH hit $6k?",
             "category": "Crypto",
             "resolution_criteria": "CoinGecko daily close >= $6000.",
+            "end_date": "2027-01-01T00:00:00Z",
             "initial_liquidity_usdc": 100,
         },
         headers=lp_headers,
@@ -81,4 +82,22 @@ async def test_amm_pool_lifecycle_fund_trade_and_redeem(client):
     assert r_epochs.status_code == 200
     epochs = r_epochs.json()["epochs"]
     assert len(epochs) >= 1
+
+    # Underwater pool (worst liability >= pool_usdc) rejects new LP deposits with 409
+    from sqlalchemy import update
+    from app.db.session import AsyncSessionLocal
+    from app.models.domain import AmmPool
+
+    async with AsyncSessionLocal() as s:
+        await s.execute(
+            update(AmmPool).where(AmmPool.market_id == market_id).values(q_yes=Decimal("500"))
+        )
+        await s.commit()
+
+    r_underwater = await client.post(
+        f"/api/v4/prediction/community/markets/{market_id}/fund",
+        json={"amount_usdc": 10},
+        headers=lp_headers,
+    )
+    assert r_underwater.status_code == 409
     assert float(epochs[0]["total_fees_collected"]) > 0

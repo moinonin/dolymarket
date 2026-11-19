@@ -32,6 +32,7 @@ async def test_stp_blocks_second_level_and_fee_insufficient_rejected(client: Asy
                 "category": "Crypto",
                 "outcomes": ["YES", "NO"],
                 "resolution_criteria": "Resolves YES per test.",
+                "end_date": "2027-01-01T00:00:00Z",
                 "initial_liquidity_usdc": 50,
             },
             headers=ah,

@@ -296,7 +296,7 @@ async def test_h5_unfunded_expired_market_refunds_partial_lp():
             title="H5 Event",
             category="Crypto",
             status="UNFUNDED",
-            end_date=now - timedelta(minutes=1),
+            end_date=now + timedelta(minutes=10),
         )
         session.add(ev)
         await session.flush()
@@ -312,6 +312,7 @@ async def test_h5_unfunded_expired_market_refunds_partial_lp():
         await session.flush()
 
         await amm.deposit_liquidity(session, mkt, lp.id, Decimal(5))
+        ev.end_date = now - timedelta(minutes=1)
         await session.commit()
         lp_id = lp.id
         mkt_id = mkt.id
@@ -348,14 +349,16 @@ async def test_m1_m2_m6_m7_community_validation_and_m5_agx_dispute(client):
         "resolution_criteria": "Resolves YES if Gate BTC_USDT >= 100000 UTC.",
     }
 
+    # Missing end_date -> 422
+    assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json=base)).status_code == 422
     # M1: invalid end_date -> 422 (never 500)
     assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "end_date": "not-a-date"})).status_code == 422
     # M2: past end_date -> 422
     assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "end_date": (datetime.now(UTC) - timedelta(days=1)).isoformat()})).status_code == 422
     # M6: prohibited substring -> 400
-    assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "category": "Violence & Crime"})).status_code == 400
+    assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "end_date": "2027-01-01T00:00:00Z", "category": "Violence & Crime"})).status_code == 400
     # M7: 3 outcomes -> 422
-    assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "outcomes": ["A", "B", "C"]})).status_code == 422
+    assert (await client.post("/api/v4/prediction/community/markets", headers=trader_h, json={**base, "end_date": "2027-01-01T00:00:00Z", "outcomes": ["A", "B", "C"]})).status_code == 422
 
     # M5: non-admin trader with AGX can dispute, locking 100 AGX, and finalize upholds & rewards
     async with AsyncSessionLocal() as session:

@@ -345,11 +345,11 @@ async def wallet_verify(
     if (consumed.rowcount or 0) != 1:
         raise HTTPException(status_code=400, detail="Wallet challenge already consumed")
 
-    # 3. Lookup or auto-provision user
+    # 3. Lookup or auto-provision user (use scalars().first() in case multiple rows share a wallet)
     user_res = await session.execute(
-        select(User).where(User.dexbuilder_wallet == norm_address)
+        select(User).where(User.dexbuilder_wallet == norm_address).order_by(User.created_at.asc()).limit(1)
     )
-    user = user_res.scalar_one_or_none()
+    user = user_res.scalars().first()
 
     if not user:
         wallet_email = f"{norm_address}@wallet.dolymarket"

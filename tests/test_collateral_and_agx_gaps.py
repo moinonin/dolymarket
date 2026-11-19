@@ -50,6 +50,7 @@ async def test_community_market_optional_agx_bond(client: AsyncClient):
             "category": "Crypto",
             "outcomes": ["YES", "NO"],
             "resolution_criteria": "Resolves YES per official feed.",
+            "end_date": "2027-01-01T00:00:00Z",
             "bond_with_agx": True,
         },
         headers=h,

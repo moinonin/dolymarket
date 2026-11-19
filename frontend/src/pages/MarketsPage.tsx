@@ -61,6 +61,39 @@ export default function MarketsPage({
   const [cFeed, setCFeed] = useState('')
   const [cRule, setCRule] = useState('>=')
   const [cThreshold, setCThreshold] = useState('')
+  const [cClarity, setCClarity] = useState<{
+    score: number
+    grade: 'HIGH' | 'MEDIUM' | 'LOW'
+    flags: string[]
+    category?: string
+    engine?: string
+  } | null>(null)
+
+  useEffect(() => {
+    if (!showCreate) return
+    if (cCriteria.trim().length < 6 && cQuestion.trim().length < 6) {
+      setCClarity(null)
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.previewMarketClarity({
+          question: cQuestion.trim(),
+          resolution_criteria: cCriteria.trim(),
+          end_date: cEndDate || undefined,
+          oracle_feed: cFeed.trim() || undefined,
+        })
+        if (!cancelled) setCClarity(res)
+      } catch {
+        // Non-blocking live preview
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [showCreate, cQuestion, cCriteria, cEndDate, cFeed])
 
   async function handleCreateCommunity(e: React.FormEvent) {
     e.preventDefault()
@@ -213,57 +246,148 @@ export default function MarketsPage({
             onSubmit={handleCreateCommunity}
             className="grid gap-3 rounded-2xl border border-emerald-500/30 bg-slate-900/80 p-5 sm:grid-cols-2"
           >
-            <input
-              required
-              minLength={5}
-              value={cTitle}
-              onChange={(e) => setCTitle(e.target.value)}
-              placeholder="Event title (e.g. BTC >= $100k by Dec)"
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-            />
-            <input
-              required
-              minLength={5}
-              value={cQuestion}
-              onChange={(e) => setCQuestion(e.target.value)}
-              placeholder="Market question (e.g. Will BTC close >= $100,000?)"
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-            />
-            <select
-              value={cCategory}
-              onChange={(e) => setCCategory(e.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-            >
-              {CATEGORIES.filter((c) => c !== 'All').map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <input
-              type="datetime-local"
-              value={cEndDate}
-              onChange={(e) => setCEndDate(e.target.value)}
-              title="End date (UTC)"
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-            />
-            <textarea
-              required
-              minLength={10}
-              rows={2}
-              value={cCriteria}
-              onChange={(e) => setCCriteria(e.target.value)}
-              placeholder="Resolution criteria (source, predicate, UTC deadline)..."
-              className="sm:col-span-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
-            />
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={cLiquidity}
-              onChange={(e) => setCLiquidity(e.target.value)}
-              placeholder="Initial LP USDC (>= 10 to activate)"
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
-            />
-            <div className="grid grid-cols-3 gap-2">
+            <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <span className="text-xs font-bold text-white">New Binary (YES / NO) Community Market</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const future = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 16)
+                  setCTitle('Anthropic IPO Subscription')
+                  setCQuestion('Will Anthropic IPO exceed 980,000,000 subscribed shares?')
+                  setCCategory('Tech')
+                  setCEndDate(future)
+                  setCCriteria(
+                    'Resolves YES if official SEC filing or Nasdaq IPO announcement confirms >= 980,000,001 shares subscribed before the UTC end date.'
+                  )
+                  setCLiquidity('10')
+                  setCFeed('')
+                  setCThreshold('')
+                }}
+                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
+              >
+                Fill Example (100/100 Clarity)
+              </button>
+            </div>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>Short Event Title <span className="font-normal text-slate-400">(card headline)</span></span>
+              <input
+                required
+                minLength={5}
+                value={cTitle}
+                onChange={(e) => setCTitle(e.target.value)}
+                placeholder="e.g. Anthropic IPO Subscription"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-normal text-white outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>Prediction Question (YES / NO) <span className="font-normal text-slate-400">(start with &ldquo;Will ...?&rdquo;)</span></span>
+              <input
+                required
+                minLength={5}
+                value={cQuestion}
+                onChange={(e) => setCQuestion(e.target.value)}
+                placeholder="e.g. Will Anthropic IPO exceed 980M subscribed shares?"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-normal text-white outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>Category</span>
+              <select
+                value={cCategory}
+                onChange={(e) => setCCategory(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-normal text-white outline-none focus:border-emerald-500"
+              >
+                {CATEGORIES.filter((c) => c !== 'All').map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>End Date &amp; Time <span className="font-normal text-slate-400">(required, UTC)</span></span>
+              <input
+                required
+                type="datetime-local"
+                value={cEndDate}
+                onChange={(e) => setCEndDate(e.target.value)}
+                title="End date (UTC)"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-normal text-white outline-none focus:border-emerald-500"
+              />
+            </label>
+            <label className="sm:col-span-2 flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>Resolution Criteria <span className="font-normal text-slate-400">(exact source, YES/NO rule &amp; deadline)</span></span>
+              <textarea
+                required
+                minLength={10}
+                rows={2}
+                value={cCriteria}
+                onChange={(e) => setCCriteria(e.target.value)}
+                placeholder="e.g. Resolves YES if official SEC filing or Nasdaq announcement confirms > 980,000,000 shares subscribed before end date."
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-normal text-white outline-none focus:border-emerald-500"
+              />
+            </label>
+            {cClarity && (
+              <div className="sm:col-span-2 rounded-lg border border-slate-700/80 bg-slate-950/80 p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-300">
+                    Oracle Clarity Gauge ({cClarity.engine || 'dolymarket_s1'})
+                  </span>
+                  <span
+                    className={`font-bold ${
+                      cClarity.grade === 'HIGH'
+                        ? 'text-emerald-400'
+                        : cClarity.grade === 'MEDIUM'
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                    }`}
+                  >
+                    {cClarity.grade} ({cClarity.score}/100)
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full transition-all ${
+                      cClarity.grade === 'HIGH'
+                        ? 'bg-emerald-500'
+                        : cClarity.grade === 'MEDIUM'
+                          ? 'bg-amber-400'
+                          : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${cClarity.score}%` }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <span>
+                    {cClarity.flags.length > 0 ? cClarity.flags.join(' · ') : 'Unambiguous resolution criteria'}
+                  </span>
+                  {cClarity.category && cClarity.category !== cCategory && (
+                    <button
+                      type="button"
+                      onClick={() => setCCategory(cClarity.category === 'PopCulture' ? 'Pop Culture' : cClarity.category!)}
+                      className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/20"
+                    >
+                      Use suggested category: {cClarity.category}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+              <span>Initial LP Liquidity (USDC) <span className="font-normal text-slate-400">(&gt;= $10 activates market)</span></span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={cLiquidity}
+                onChange={(e) => setCLiquidity(e.target.value)}
+                placeholder="10"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs font-normal text-white outline-none focus:border-emerald-500"
+              />
+            </label>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold text-slate-300">
+                Auto-Oracle Feed <span className="font-normal text-slate-400">(optional: feed, rule, threshold)</span>
+              </span>
+              <div className="grid grid-cols-3 gap-2">
               <input
                 value={cFeed}
                 onChange={(e) => setCFeed(e.target.value)}
@@ -288,6 +412,7 @@ export default function MarketsPage({
                 placeholder="Threshold"
                 className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-white outline-none focus:border-emerald-500"
               />
+              </div>
             </div>
             <div className="sm:col-span-2 flex justify-end gap-2">
               <button

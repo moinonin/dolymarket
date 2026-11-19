@@ -700,6 +700,24 @@ export class ApiClient {
     return this.request(`/api/v4/prediction/events/slug/${encodeURIComponent(slug)}`);
   }
 
+  previewMarketClarity(body: {
+    question?: string;
+    resolution_criteria?: string;
+    end_date?: string;
+    oracle_feed?: string;
+  }): Promise<{
+    score: number;
+    grade: 'HIGH' | 'MEDIUM' | 'LOW';
+    flags: string[];
+    category?: string;
+    engine?: string;
+  }> {
+    return this.request('/api/v4/prediction/community/clarity-preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
   createCommunityMarket(body: {
     title: string;
     question: string;

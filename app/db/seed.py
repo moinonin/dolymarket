@@ -23,29 +23,29 @@ DEMO_TRADER_PASSWORD = "trader-demo-1234"
 EVENTS = [
     dict(
         slug="fed-interest-rate-decision",
-        title="Fed Interest Rate Decision",
-        description="Will the Federal Reserve cut rates at the next FOMC meeting?",
+        title="Fed cuts rates at next 2026 FOMC meeting",
+        description="Will the Federal Reserve cut the federal funds target rate at the next scheduled 2026 FOMC meeting?",
         category="Macro",
         tags=["fed", "rates", "macro"],
     ),
     dict(
         slug="us-presidential-election-2028",
-        title="US Presidential Election 2028",
-        description="Who will win the 2028 US presidential election?",
+        title="Democratic nominee wins 2028 US Presidential Election",
+        description="Will the Democratic nominee win the 2028 US Presidential Election per Associated Press?",
         category="Politics",
         tags=["election", "potus"],
     ),
     dict(
         slug="btc-150k-before-sept",
-        title="BTC above $150K before September",
-        description="Will Bitcoin close above $150,000 on any exchange before September 1?",
+        title="BTC closes >= $150K on Coinbase before Sept 1, 2026",
+        description="Will Bitcoin (BTC-USD on Coinbase) close at or above $150,000 before September 1, 2026 23:59 UTC?",
         category="Crypto",
         tags=["btc", "crypto"],
     ),
     dict(
         slug="nba-champion",
-        title="NBA Champion",
-        description="Which team will win the next NBA championship?",
+        title="2026-27 NBA Champion",
+        description="Which team will win the 2026-27 NBA Championship?",
         category="Sports",
         tags=["nba", "basketball"],
         neg_risk=True,
@@ -106,11 +106,11 @@ async def seed(session: AsyncSession) -> None:
 
         question = spec["title"]
         if spec.get("neg_risk"):
-            outcomes = ["Lakers", "Celtics", "Thunder", " Knicks"]
-            question_root = "Which team wins the championship?"
+            outcomes = ["Lakers", "Celtics", "Thunder", "Knicks"]
+            question_root = spec["description"]
         else:
             outcomes = ["YES", "NO"]
-            question_root = f"Will {question}?"
+            question_root = spec["description"]
 
         market = Market(
             event_id=event.id,

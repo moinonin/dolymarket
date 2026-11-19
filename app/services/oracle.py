@@ -56,36 +56,74 @@ def compute_clarity_score(
     question: str | None = None,
     end_date: Any = None,
     oracle_feed: str | None = None,
+    outcomes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Score resolution criteria clarity 0..100 across source, predicate, time, and edge cases."""
+    from app.services.oracle_s1 import get_oracle_decision_model
+
     text = (resolution_criteria or "").strip()
     lower = text.lower()
+    s1 = get_oracle_decision_model().predict(
+        text, question=question, end_date=end_date, oracle_feed=oracle_feed
+    )
     flags: list[str] = []
     score = 0
 
-    if oracle_feed or any(tok in lower for tok in _AUTHORITATIVE_SOURCES):
+    has_any_exchange = bool(re.search(r"\bany\s+(exchange|source|platform|market)\b", f"{question or ''} {lower}", re.I))
+    has_source_rx = bool(oracle_feed or any(tok in lower for tok in _AUTHORITATIVE_SOURCES))
+    has_source_s1 = bool(s1 and s1.get("has_authoritative_source", 0.0) >= 0.55)
+    if (has_source_rx or has_source_s1) and not has_any_exchange:
         score += 25
     else:
-        flags.append("No authoritative source or URL cited")
+        flags.append(
+            "Vague source ('any exchange/source') — name a specific exchange or feed"
+            if has_any_exchange
+            else "No authoritative source or URL cited"
+        )
 
-    if any(tok in lower for tok in _PREDICATE_TERMS) or re.search(r"\b\d+(\.\d+)?%?\b", lower):
+    is_binary = not outcomes or [o.strip().upper() for o in outcomes] == ["YES", "NO"]
+    is_open_ended = bool(question and re.match(r"^\s*(who|which|what)\b", question, re.I))
+    has_pred_rx = bool(any(tok in lower for tok in _PREDICATE_TERMS) or re.search(r"\b\d+(\.\d+)?%?\b", lower))
+    has_pred_s1 = bool(s1 and s1.get("has_unambiguous_predicate", 0.0) >= 0.50)
+    if (has_pred_rx or has_pred_s1) and not (is_binary and is_open_ended):
         score += 25
     else:
-        flags.append("Missing unambiguous numeric or binary predicate")
+        flags.append(
+            "Open-ended question ('Who/Which/What') requires binary 'Will ...?' framing or multi-outcome options"
+            if (is_binary and is_open_ended)
+            else "Missing unambiguous numeric or binary predicate"
+        )
 
-    if end_date is not None or any(tok in lower for tok in _TIME_TERMS):
+    has_relative_next = bool(re.search(r"\bnext\b", f"{question or ''} {lower}", re.I))
+    has_abs_year = bool(re.search(r"\b20\d{2}\b", f"{question or ''} {lower}"))
+    has_time_rx = bool(end_date is not None or any(tok in lower for tok in _TIME_TERMS))
+    has_time_s1 = bool(s1 and s1.get("has_explicit_deadline", 0.0) >= 0.55)
+    if (has_time_rx or has_time_s1) and not (has_relative_next and end_date is None and not has_abs_year):
         score += 25
     else:
-        flags.append("Missing explicit resolution timestamp or UTC window")
+        flags.append(
+            "Relative timeframe ('next') without an explicit year or end_date"
+            if (has_relative_next and end_date is None and not has_abs_year)
+            else "Missing explicit resolution timestamp or UTC window"
+        )
 
     has_weasel = any(w in lower for w in _WEASEL_TERMS)
-    if len(text) >= 35 and not has_weasel:
+    has_s1_subjective = bool(s1 and s1.get("has_subjective_ambiguity", 0.0) >= 0.80)
+    if len(text) >= 35 and not has_weasel and not has_s1_subjective:
         score += 25
     else:
         flags.append("Criteria too brief or contains subjective wording")
 
     grade = "HIGH" if score >= 75 else "MEDIUM" if score >= 50 else "LOW"
-    return {"score": score, "grade": grade, "flags": flags}
+    out: dict[str, Any] = {
+        "score": score,
+        "grade": grade,
+        "flags": flags,
+        "engine": "dolymarket_s1" if s1 else "regex",
+    }
+    if s1:
+        out["category"] = s1["category"]
+    return out
 
 
 LIVE_ORACLE_PROVIDERS = frozenset({"gate", "coingecko"})

@@ -25,6 +25,7 @@ async def test_smart_router_splits_clob_and_amm_and_handles_empty_book_exit(clie
             "category": "Crypto",
             "outcomes": ["YES", "NO"],
             "resolution_criteria": "Resolves YES per test.",
+            "end_date": "2027-01-01T00:00:00Z",
             "initial_liquidity_usdc": 50,
         },
         headers=creator_h,
