@@ -1213,6 +1213,146 @@ function HeroCanvas() {
   return <canvas ref={ref} className="h-full w-full" aria-hidden="true" />
 }
 
+const CHART_CATEGORIES = new Set([
+  'economics',
+  'financials',
+  'crypto',
+  'companies',
+  'tech & science',
+  'tech',
+  'finance',
+])
+
+function isChartCategory(cat: string | null | undefined): boolean {
+  const c = (cat || '').trim().toLowerCase()
+  return CHART_CATEGORIES.has(c) || c.includes('econ') || c.includes('financ') || c.includes('crypto') || c.includes('tech') || c.includes('compan')
+}
+
+function MarketChartBackdrop({
+  seedKey,
+  yesPct,
+  category,
+}: {
+  seedKey: string
+  yesPct: number | null
+  category: string
+}) {
+  // Deterministic PRNG from slide key so each card has a crisp, stable chart curve + candles
+  let h = 2166136261
+  for (let i = 0; i < seedKey.length; i++) {
+    h ^= seedKey.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  const rand = () => {
+    h ^= h << 13
+    h ^= h >>> 17
+    h ^= h << 5
+    return ((h >>> 0) % 1000) / 1000
+  }
+
+  const target = yesPct != null ? Math.max(12, Math.min(88, yesPct)) : 52 + (rand() - 0.5) * 30
+  const bullish = target >= 50
+  const stroke = bullish ? '#34d399' : '#fb7185'
+  const fillTop = bullish ? 'rgba(16,185,129,0.34)' : 'rgba(244,63,94,0.32)'
+  const gradId = `chart-grad-${seedKey.replace(/[^a-zA-Z0-9]/g, '').slice(0, 14)}`
+
+  const N = 22
+  const W = 360
+  const H = 190
+  const pts: { x: number; y: number; o: number; c: number; hi: number; lo: number; vol: number }[] = []
+  let cur = bullish ? Math.max(18, target - 22 + rand() * 10) : Math.min(82, target + 22 - rand() * 10)
+
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1)
+    const drift = (target - cur) * (0.14 + t * 0.16)
+    const jitter = (rand() - 0.5) * 9.5
+    const open = cur
+    cur = Math.max(10, Math.min(90, cur + drift + jitter))
+    const close = i === N - 1 ? target : cur
+    const hi = Math.min(96, Math.max(open, close) + 2 + rand() * 5)
+    const lo = Math.max(4, Math.min(open, close) - 2 - rand() * 5)
+    const toY = (v: number) => H - 36 - (v / 100) * (H - 58)
+    pts.push({
+      x: 14 + t * (W - 28),
+      y: toY(close),
+      o: toY(open),
+      c: toY(close),
+      hi: toY(hi),
+      lo: toY(lo),
+      vol: 8 + rand() * 26,
+    })
+  }
+
+  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${pts[N - 1].x.toFixed(1)},${H} L${pts[0].x.toFixed(1)},${H} Z`
+  const last = pts[N - 1]
+
+  return (
+    <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="h-full w-full"
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={fillTop} />
+            <stop offset="100%" stopColor="rgba(2,6,23,0)" />
+          </linearGradient>
+        </defs>
+        {/* Terminal gridlines */}
+        {[35, 72, 109, 146].map((gy) => (
+          <line key={gy} x1="0" y1={gy} x2={W} y2={gy} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 4" />
+        ))}
+        {[72, 144, 216, 288].map((gx) => (
+          <line key={gx} x1={gx} y1="0" x2={gx} y2={H} stroke="rgba(148,163,184,0.08)" />
+        ))}
+        {/* Volume bars */}
+        {pts.map((p, i) => (
+          <rect
+            key={`v-${i}`}
+            x={p.x - 3}
+            y={H - p.vol - 12}
+            width="6"
+            height={p.vol}
+            rx="1"
+            fill={p.c <= p.o ? 'rgba(52,211,153,0.22)' : 'rgba(251,113,133,0.22)'}
+          />
+        ))}
+        {/* Area under curve */}
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        {/* Candlesticks */}
+        {pts.map((p, i) => {
+          const up = p.c <= p.o
+          const col = up ? 'rgba(52,211,153,0.8)' : 'rgba(251,113,133,0.8)'
+          return (
+            <g key={`c-${i}`}>
+              <line x1={p.x} y1={p.hi} x2={p.x} y2={p.lo} stroke={col} strokeWidth="1.2" />
+              <rect
+                x={p.x - 3.2}
+                y={Math.min(p.o, p.c)}
+                width="6.4"
+                height={Math.max(2.5, Math.abs(p.c - p.o))}
+                rx="1"
+                fill={col}
+              />
+            </g>
+          )
+        })}
+        {/* Smooth trend curve + live dot */}
+        <path d={linePath} fill="none" stroke={stroke} strokeWidth="2.2" strokeLinejoin="round" />
+        <circle cx={last.x} cy={last.y} r="4" fill={stroke} />
+        <circle cx={last.x} cy={last.y} r="8" fill={stroke} opacity="0.25" />
+        {/* Subtle top-right chart tag */}
+        <text x={W - 12} y="20" textAnchor="end" fill="rgba(148,163,184,0.55)" fontSize="9" fontFamily="monospace">
+          {category.toUpperCase()} · LIVE CHART
+        </text>
+      </svg>
+    </div>
+  )
+}
+
 function NewsVisualMarquee({
   events,
   newsSlides = [],
@@ -1441,7 +1581,10 @@ function NewsVisualMarquee({
           }}
           className="flex gap-3 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden cursor-grab active:cursor-grabbing"
         >
-        {loopedSlides.map((slide, idx) => (
+        {loopedSlides.map((slide, idx) => {
+          const showChart =
+            isChartCategory(slide.category) && (!slide.image || idx % 2 === 1)
+          return (
           <button
             key={`${slide.key}-${idx}`}
             type="button"
@@ -1451,7 +1594,13 @@ function NewsVisualMarquee({
             }}
             className="group relative flex aspect-[16/10] min-h-[240px] w-[86%] shrink-0 flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[255px] sm:w-[48%] lg:min-h-[270px] lg:w-[32.2%] 2xl:w-[24.2%]"
           >
-            {slide.image ? (
+            {showChart ? (
+              <MarketChartBackdrop
+                seedKey={slide.key}
+                yesPct={slide.yesPct}
+                category={slide.category}
+              />
+            ) : slide.image ? (
               <img
                 src={slide.image}
                 alt={slide.headline}
@@ -1462,7 +1611,11 @@ function NewsVisualMarquee({
                 className="absolute inset-0 h-full w-full object-cover object-center opacity-100 transition duration-500 group-hover:scale-105"
               />
             ) : (
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-blue-950/80" />
+              <MarketChartBackdrop
+                seedKey={slide.key}
+                yesPct={slide.yesPct}
+                category={slide.category}
+              />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/25 via-45% to-transparent" />
 
@@ -1500,7 +1653,8 @@ function NewsVisualMarquee({
               </div>
             </div>
           </button>
-        ))}
+          )
+        })}
         </div>
       </div>
     </section>
