@@ -62,8 +62,20 @@ export class PredictionSocket {
       window.clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    this.ws?.close()
+    const ws = this.ws
     this.ws = null
+    if (ws) {
+      ws.onmessage = null
+      ws.onerror = null
+      ws.onclose = null
+      if (ws.readyState === WebSocket.CONNECTING) {
+        // Avoid browser warning "WebSocket is closed before the connection is established"
+        ws.onopen = () => ws.close()
+      } else if (ws.readyState === WebSocket.OPEN) {
+        ws.onopen = null
+        ws.close()
+      }
+    }
     this.emitState('closed')
   }
 
@@ -103,9 +115,9 @@ export class PredictionSocket {
       // onclose always follows; reconnection is handled there.
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.clearTimers()
-      if (this.closedByUser) {
+      if (this.closedByUser || event.code === 4401 || event.code === 4403) {
         this.emitState('closed')
         return
       }

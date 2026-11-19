@@ -38,6 +38,19 @@ def _origin_allowed(ws: WebSocket) -> bool:
     }
     if host:
         allowed.update({f"http://{host}", f"https://{host}"})
+        host_only = host.split(":", 1)[0].lower()
+        # Local dev proxy (Vite on :5173 -> backend on 127.0.0.1:8001) rewrites Host.
+        if host_only in ("127.0.0.1", "localhost"):
+            allowed.update(
+                {
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                    "http://localhost:8000",
+                    "http://127.0.0.1:8000",
+                    "http://localhost:8001",
+                    "http://127.0.0.1:8001",
+                }
+            )
     return origin in allowed
 
 
