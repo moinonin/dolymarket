@@ -129,7 +129,16 @@ export default function HomePage({
   const [corpusTags, setCorpusTags] = useState<string[]>([])
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
   const [topicImages, setTopicImages] = useState<Record<string, string>>({})
-  const [newsSlides, setNewsSlides] = useState<NewsCarouselItem[]>([])
+  const [newsSlides, setNewsSlides] = useState<NewsCarouselItem[]>(() => {
+    try {
+      const raw = window.sessionStorage.getItem('algoxen_news_carousel_v1')
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
   const [activeCategory, setActiveCategory] = useState<string>('Trending')
   const [feedMode, setFeedMode] = useState<FeedMode>('TRENDING')
   const [selectedTag, setSelectedTag] = useState<string>('ALL')
@@ -146,6 +155,26 @@ export default function HomePage({
       try {
         setLoading(true)
         setError(null)
+        // Fire news carousel in parallel immediately — do not wait for tickers or Wikipedia
+        void api
+          .getNewsCarousel(12)
+          .then((newsRes) => {
+            if (!cancelled && Array.isArray(newsRes.items) && newsRes.items.length > 0) {
+              setNewsSlides(newsRes.items)
+              try {
+                window.sessionStorage.setItem(
+                  'algoxen_news_carousel_v1',
+                  JSON.stringify(newsRes.items)
+                )
+              } catch {
+                /* ignore storage quota */
+              }
+            }
+          })
+          .catch(() => {
+            /* fallback to market + Wikimedia carousel */
+          })
+
         const [res, tagRes, liveTagRes] = await Promise.all([
           api.listEvents({ sort_by: 'liquidity', limit: 100 }),
           api.listTags().catch(() => ({ tags: [] as string[] })),
@@ -157,61 +186,56 @@ export default function HomePage({
           new Set([...(tagRes.tags || []), ...(liveTagRes.tags || [])].map((t) => t.trim()).filter(Boolean))
         )
         setCorpusTags(mergedTags)
+        // Render page & carousel immediately without waiting on 24 ticker + 12 wiki calls
+        setLoading(false)
 
         const preview = res.events.filter((e) => e.status === 'ACTIVE').slice(0, 12)
-        const rows: Record<string, TickerRow> = {}
-        await Promise.all(
-          preview.map(async (ev) => {
-            try {
-              const detail = await api.getEventBySlug(ev.slug)
-              const market = detail.markets?.[0]
-              const token = market?.tokens?.[0]
-              if (!token) return
-              const ticker: Ticker = await api.getTicker(token.token_id)
-              rows[ev.id] = {
-                token_id: token.token_id,
-                symbol: token.symbol,
-                price: ticker.last_price ?? ticker.bbo.best_ask ?? ticker.bbo.best_bid,
+        void (async () => {
+          const rows: Record<string, TickerRow> = {}
+          await Promise.all(
+            preview.map(async (ev) => {
+              try {
+                const detail = await api.getEventBySlug(ev.slug)
+                const market = detail.markets?.[0]
+                const token = market?.tokens?.[0]
+                if (!token) return
+                const ticker: Ticker = await api.getTicker(token.token_id)
+                rows[ev.id] = {
+                  token_id: token.token_id,
+                  symbol: token.symbol,
+                  price: ticker.last_price ?? ticker.bbo.best_ask ?? ticker.bbo.best_bid,
+                }
+              } catch {
+                /* a missing ticker must not break the page */
               }
-            } catch {
-              /* a missing ticker must not break the page */
-            }
-          })
-        )
-        if (!cancelled) setTickers(rows)
+            })
+          )
+          if (!cancelled) setTickers(rows)
+        })()
 
-        // Fetch free CORS-enabled topic thumbnails from Wikimedia REST API
+        // Fetch free CORS-enabled topic thumbnails from Wikimedia REST API in background
         const topics = Array.from(new Set(res.events.slice(0, 12).map(inferWikiTopic)))
-        const imgs: Record<string, string> = {}
-        await Promise.all(
-          topics.map(async (topic) => {
-            try {
-              const r = await fetch(
-                `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`
-              )
-              if (!r.ok) return
-              const data = await r.json()
-              const src = data?.thumbnail?.source || data?.originalimage?.source
-              if (typeof src === 'string') imgs[topic] = src
-            } catch {
-              /* image fallback handled in card */
-            }
-          })
-        )
-        if (!cancelled) setTopicImages(imgs)
-
-        // Fetch cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets
-        try {
-          const newsRes = await api.getNewsCarousel(12)
-          if (!cancelled && Array.isArray(newsRes.items)) {
-            setNewsSlides(newsRes.items)
-          }
-        } catch {
-          /* fallback to market + Wikimedia carousel */
-        }
+        void (async () => {
+          const imgs: Record<string, string> = {}
+          await Promise.all(
+            topics.map(async (topic) => {
+              try {
+                const r = await fetch(
+                  `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`
+                )
+                if (!r.ok) return
+                const data = await r.json()
+                const src = data?.thumbnail?.source || data?.originalimage?.source
+                if (typeof src === 'string') imgs[topic] = src
+              } catch {
+                /* image fallback handled in card */
+              }
+            })
+          )
+          if (!cancelled) setTopicImages(imgs)
+        })()
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Could not load market data')
-      } finally {
         if (!cancelled) setLoading(false)
       }
     }
@@ -411,7 +435,7 @@ export default function HomePage({
       </section>
 
       {/* Auto-sliding Visual News & Market Image Strip (filters with category/tag/search) */}
-      {!loading && (filteredEvents.length > 0 || events.length > 0) && (() => {
+      {(!loading || newsSlides.length > 0) && (filteredEvents.length > 0 || events.length > 0 || newsSlides.length > 0) && (() => {
         const isFiltered =
           activeCategory !== 'Trending' || selectedTag !== 'ALL' || searchQuery.trim().length > 0
         const filteredSlugs = new Set(filteredEvents.map((e) => e.slug))
@@ -1372,7 +1396,8 @@ function NewsVisualMarquee({
               <img
                 src={slide.image}
                 alt={slide.headline}
-                loading="lazy"
+                loading="eager"
+                decoding="async"
                 onError={() => setBrokenImgs((b) => ({ ...b, [slide.key]: true }))}
                 className="absolute inset-0 h-full w-full object-cover object-center opacity-100 transition duration-500 group-hover:scale-105"
               />

@@ -413,15 +413,18 @@ async def build_news_carousel(
             }
         )
 
-    # Wikimedia fallback (Source #4) for any slide missing a photo, or if upstream news was empty.
-    missing_img = [s for s in slides if not s.get("image_url")]
+    # Wikimedia fallback (Source #4) fetched concurrently for any slide missing a photo.
+    missing_img = [s for s in slides if not s.get("image_url")][:6]
     if missing_img and raw_items is None:
         headers = {"User-Agent": "AlgoXenNewsCarousel/1.0 (+https://algoxen.example.com)"}
-        async with httpx.AsyncClient(timeout=4.0, headers=headers) as client:
-            for s in missing_img[:6]:
-                topic = _infer_wiki_topic(f"{s['market_title']} {s['news_title']}")
-                img = await _fetch_wikimedia_image(client, topic)
-                if img:
+        async with httpx.AsyncClient(timeout=3.0, headers=headers) as client:
+            topics = [_infer_wiki_topic(f"{s['market_title']} {s['news_title']}") for s in missing_img]
+            wiki_imgs = await asyncio.gather(
+                *(_fetch_wikimedia_image(client, t) for t in topics),
+                return_exceptions=True,
+            )
+            for s, img in zip(missing_img, wiki_imgs):
+                if isinstance(img, str) and img:
                     s["image_url"] = img
 
     return slides
