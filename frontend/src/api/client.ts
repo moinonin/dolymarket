@@ -1537,6 +1537,31 @@ export class ApiClient {
       body: JSON.stringify(body),
     });
   }
+
+  /** Cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets. */
+  getNewsCarousel(
+    limit = 12
+  ): Promise<{ items: NewsCarouselItem[]; sources: string[] }> {
+    return this.request(`/api/v4/prediction/news/carousel?limit=${limit}`, {}, false);
+  }
+}
+
+export interface NewsCarouselItem {
+  id: string;
+  news_title: string;
+  caption: string;
+  source: string;
+  article_url: string | null;
+  image_url: string | null;
+  published_at: string | null;
+  provider: string;
+  event_id: string;
+  market_id: string | null;
+  market_slug: string;
+  market_title: string;
+  category: string;
+  yes_pct: number | null;
+  volume: number;
 }
 
 export const api = new ApiClient();

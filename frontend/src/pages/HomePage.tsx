@@ -19,7 +19,7 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react'
-import { api, type Event, type Ticker } from '../api/client'
+import { api, type Event, type NewsCarouselItem, type Ticker } from '../api/client'
 import { ProbabilityBar, Skeleton } from '../components/ui'
 import { HeroVisual } from '../components/HeroVisual'
 
@@ -129,6 +129,7 @@ export default function HomePage({
   const [corpusTags, setCorpusTags] = useState<string[]>([])
   const [tickers, setTickers] = useState<Record<string, TickerRow>>({})
   const [topicImages, setTopicImages] = useState<Record<string, string>>({})
+  const [newsSlides, setNewsSlides] = useState<NewsCarouselItem[]>([])
   const [activeCategory, setActiveCategory] = useState<string>('Trending')
   const [feedMode, setFeedMode] = useState<FeedMode>('TRENDING')
   const [selectedTag, setSelectedTag] = useState<string>('ALL')
@@ -198,6 +199,16 @@ export default function HomePage({
           })
         )
         if (!cancelled) setTopicImages(imgs)
+
+        // Fetch cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets
+        try {
+          const newsRes = await api.getNewsCarousel(12)
+          if (!cancelled && Array.isArray(newsRes.items)) {
+            setNewsSlides(newsRes.items)
+          }
+        } catch {
+          /* fallback to market + Wikimedia carousel */
+        }
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Could not load market data')
       } finally {
@@ -403,6 +414,7 @@ export default function HomePage({
       {!loading && (filteredEvents.length > 0 || events.length > 0) && (
         <NewsVisualMarquee
           events={(filteredEvents.length > 0 ? filteredEvents : events).slice(0, 8)}
+          newsSlides={newsSlides}
           tickers={tickers}
           topicImages={topicImages}
           onOpen={onOpenEvent}
@@ -1136,19 +1148,62 @@ function HeroCanvas() {
 
 function NewsVisualMarquee({
   events,
+  newsSlides = [],
   tickers,
   topicImages,
   onOpen,
 }: {
   events: Event[]
+  newsSlides?: NewsCarouselItem[]
   tickers: Record<string, TickerRow>
   topicImages: Record<string, string>
   onOpen: (slug: string) => void
 }) {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
+  const [brokenImgs, setBrokenImgs] = useState<Record<string, boolean>>({})
   const swipeStartX = useRef<number | null>(null)
-  const total = events.length
+
+  const slides = useMemo(() => {
+    const evBySlug = new Map(events.map((e) => [e.slug, e]))
+    if (newsSlides.length > 0) {
+      return newsSlides.map((n) => {
+        const matchedEv = evBySlug.get(n.market_slug)
+        const fallbackImg = matchedEv ? topicImages[inferWikiTopic(matchedEv)] : undefined
+        const t = tickers[n.event_id]
+        const liveYes = t?.price != null ? Math.round(t.price * 100) : n.yes_pct
+        return {
+          key: n.id,
+          slug: n.market_slug,
+          category: n.category,
+          source: n.source,
+          headline: n.news_title,
+          caption: n.caption,
+          marketTitle: n.market_title,
+          image: (!brokenImgs[n.id] && n.image_url) || fallbackImg || null,
+          yesPct: liveYes,
+          volume: n.volume,
+        }
+      })
+    }
+    return events.map((ev) => {
+      const t = tickers[ev.id]
+      return {
+        key: ev.id,
+        slug: ev.slug,
+        category: ev.category,
+        source: null as string | null,
+        headline: ev.title,
+        caption: ev.description || null,
+        marketTitle: ev.title,
+        image: topicImages[inferWikiTopic(ev)] || null,
+        yesPct: t?.price != null ? Math.round(t.price * 100) : null,
+        volume: ev.total_volume || 0,
+      }
+    })
+  }, [events, newsSlides, tickers, topicImages, brokenImgs])
+
+  const total = slides.length
 
   useEffect(() => {
     setIndex(0)
@@ -1158,7 +1213,7 @@ function NewsVisualMarquee({
     if (paused || total <= 1) return
     const timer = window.setInterval(() => {
       setIndex((i) => (i + 1) % total)
-    }, 4000)
+    }, 4500)
     return () => window.clearInterval(timer)
   }, [paused, total])
 
@@ -1166,7 +1221,7 @@ function NewsVisualMarquee({
 
   const prev = () => setIndex((i) => (i - 1 + total) % total)
   const next = () => setIndex((i) => (i + 1) % total)
-  const ordered = Array.from({ length: total }, (_, offset) => events[(index + offset) % total])
+  const ordered = Array.from({ length: total }, (_, offset) => slides[(index + offset) % total])
 
   return (
     <section
@@ -1215,56 +1270,71 @@ function NewsVisualMarquee({
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {ordered.slice(0, 4).map((ev, slotIdx) => {
-          const img = topicImages[inferWikiTopic(ev)]
-          const t = tickers[ev.id]
-          const yesPct = t?.price != null ? Math.round(t.price * 100) : null
-          return (
-            <button
-              key={ev.id}
-              type="button"
-              onClick={() => onOpen(ev.slug)}
-              className={`group relative flex aspect-[16/10] min-h-[220px] w-full flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[235px] lg:min-h-[250px] ${
-                slotIdx === 3 ? 'hidden 2xl:flex' : ''
-              }`}
-            >
-              {img ? (
-                <img
-                  src={img}
-                  alt={ev.title}
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full object-cover object-top opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85"
-                />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-blue-950/80" />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent" />
+        {ordered.slice(0, 4).map((slide, slotIdx) => (
+          <button
+            key={slide.key}
+            type="button"
+            onClick={() => onOpen(slide.slug)}
+            className={`group relative flex aspect-[16/10] min-h-[240px] w-full flex-col justify-end overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/50 sm:min-h-[255px] lg:min-h-[270px] ${
+              slotIdx === 3 ? 'hidden 2xl:flex' : ''
+            }`}
+          >
+            {slide.image ? (
+              <img
+                src={slide.image}
+                alt={slide.headline}
+                loading="lazy"
+                onError={() => setBrokenImgs((b) => ({ ...b, [slide.key]: true }))}
+                className="absolute inset-0 h-full w-full object-cover object-top opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85"
+              />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-blue-950/80" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/65 to-transparent" />
 
-              <div className="relative z-10 p-4">
-                <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
+            <div className="relative z-10 p-4">
+              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider">
+                <div className="flex items-center gap-1.5 truncate">
+                  {slide.source && (
+                    <span className="rounded bg-slate-900/90 px-2 py-0.5 text-slate-200 backdrop-blur-sm">
+                      {slide.source}
+                    </span>
+                  )}
                   <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-emerald-300 backdrop-blur-sm">
-                    {ev.category}
-                  </span>
-                  <span className="font-mono tabular-nums text-white">
-                    {yesPct != null ? `${yesPct}% Yes · ` : ''}$
-                    {Math.round(ev.total_volume || 0).toLocaleString()}
+                    {slide.category}
                   </span>
                 </div>
-                <p className="line-clamp-2 text-sm font-bold leading-snug text-white group-hover:text-emerald-300">
-                  {ev.title}
-                </p>
+                <span className="shrink-0 font-mono tabular-nums text-white">
+                  {slide.yesPct != null ? `${slide.yesPct}% Yes` : 'Live'}
+                </span>
               </div>
-            </button>
-          )
-        })}
+              <p className="line-clamp-2 text-sm font-bold leading-snug text-white group-hover:text-emerald-300">
+                {slide.headline}
+              </p>
+              {slide.caption && slide.caption !== slide.headline && (
+                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-slate-300/90">
+                  {slide.caption}
+                </p>
+              )}
+              <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-800/80 pt-2 text-[11px]">
+                <span className="truncate font-medium text-emerald-300">
+                  Trade: {slide.marketTitle}
+                </span>
+                <span className="shrink-0 font-mono tabular-nums text-slate-400">
+                  ${Math.round(slide.volume).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </button>
+        ))}
         </div>
       </div>
 
       {total > 1 && (
         <div className="mt-2.5 flex justify-center gap-1.5">
-          {events.map((ev, i) => (
+          {slides.map((s, i) => (
             <button
-              key={ev.id}
+              key={s.key}
               type="button"
               aria-label={`Slide ${i + 1}`}
               onClick={() => setIndex(i)}

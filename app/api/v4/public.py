@@ -330,3 +330,58 @@ def _build_candles(fills, resolution: str = "1m") -> list[dict]:
             c["close"] = p
             c["volume"] += v
     return [out[k] for k in sorted(out)]
+
+
+@router.get("/news/carousel")
+async def news_carousel(
+    limit: int = Query(default=12, ge=1, le=24),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Cached multi-source news carousel (RSS + GDELT + Currents + Wikimedia) linked to active markets."""
+    from app.models.domain import AmmPool
+    from app.services import amm as amm_service
+    from app.services.news_carousel import build_news_carousel
+
+    rows = (
+        await session.execute(
+            select(Event, Market)
+            .join(Market, Market.event_id == Event.id)
+            .where(Market.status == "ACTIVE")
+            .order_by(Event.total_volume.desc())
+            .limit(40)
+        )
+    ).all()
+
+    seen_events: set[str] = set()
+    active_events: list[dict] = []
+    for ev, mkt in rows:
+        if ev.id in seen_events:
+            continue
+        seen_events.add(ev.id)
+        yes_pct: int | None = None
+        pool = (
+            await session.execute(select(AmmPool).where(AmmPool.market_id == mkt.id))
+        ).scalar_one_or_none()
+        if pool is not None:
+            p_yes, _ = amm_service.lmsr_prices(
+                float(pool.q_yes), float(pool.q_no), float(pool.b)
+            )
+            yes_pct = round(float(p_yes) * 100)
+        active_events.append(
+            {
+                "event_id": ev.id,
+                "market_id": mkt.id,
+                "slug": ev.slug,
+                "title": ev.title,
+                "question": mkt.question,
+                "category": ev.category or "Markets",
+                "volume": float(ev.total_volume or 0),
+                "yes_pct": yes_pct,
+            }
+        )
+
+    items = await build_news_carousel(active_events, limit=limit)
+    return {
+        "items": items,
+        "sources": ["rss", "gdelt", "currents", "wikimedia"],
+    }
