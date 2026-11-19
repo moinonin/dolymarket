@@ -47,15 +47,50 @@ def _validate_public_http_url(url: str) -> str:
     return raw
 
 
-async def fetch_source_text(source_url: str, *, max_chars: int = 4000) -> str:
-    """Fetch and strip HTML from a public source URL."""
+_ALLOWED_CONTENT_PREFIXES = (
+    "text/",
+    "application/json",
+    "application/xml",
+    "application/xhtml",
+)
+
+
+async def fetch_source_text(
+    source_url: str,
+    *,
+    max_chars: int = 4000,
+    max_bytes: int = 65536,
+) -> str:
+    """Fetch and strip HTML from a public source URL with strict byte + content-type caps."""
     url = _validate_public_http_url(source_url)
     async with httpx.AsyncClient(timeout=8.0, follow_redirects=False) as client:
-        resp = await client.get(url, headers={"User-Agent": "dolymarket-oracle-verifier/1.0"})
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"Evidence URL returned HTTP {resp.status_code}")
-        text = _TAG_RE.sub(" ", resp.text)
-        return _WS_RE.sub(" ", text).strip()[:max_chars]
+        async with client.stream(
+            "GET",
+            url,
+            headers={"User-Agent": "dolymarket-oracle-verifier/1.0"},
+        ) as resp:
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Evidence URL returned HTTP {resp.status_code}",
+                )
+            ctype = (resp.headers.get("content-type") or "text/plain").split(";")[0].strip().lower()
+            if ctype and not ctype.startswith(_ALLOWED_CONTENT_PREFIXES):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unsupported evidence Content-Type: {ctype}",
+                )
+            buf = bytearray()
+            async for chunk in resp.aiter_bytes():
+                remaining = max_bytes - len(buf)
+                if remaining <= 0:
+                    break
+                buf.extend(chunk[:remaining])
+                if len(buf) >= max_bytes:
+                    break
+            raw_text = bytes(buf).decode("utf-8", errors="replace")
+            text = _TAG_RE.sub(" ", raw_text)
+            return _WS_RE.sub(" ", text).strip()[:max_chars]
 
 
 def _local_entailment(

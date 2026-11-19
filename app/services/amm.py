@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import AmmLpPosition, AmmPool, Event, Market, OutcomeToken, Position
 from app.services import collateral
-from app.services.markets import MIN_COMMUNITY_FUNDING_USDC
+from app.services.markets import MIN_COMMUNITY_FUNDING_USDC, ensure_market_open_for_trading
 
 logger = logging.getLogger("app.amm")
 LN2 = math.log(2.0)
@@ -218,8 +218,7 @@ async def execute_amm_trade(
     shares: Decimal,
 ) -> dict:
     """Execute an instant LMSR trade against the market's AmmPool."""
-    if market.status != "ACTIVE":
-        raise HTTPException(status_code=409, detail=f"Market is {market.status}; trading requires ACTIVE")
+    await ensure_market_open_for_trading(session, market)
     pool = (
         await session.execute(
             select(AmmPool).where(AmmPool.market_id == market.id).with_for_update()
@@ -233,6 +232,8 @@ async def execute_amm_trade(
     notional = collateral.q4(Decimal(str(q["notional_usdc"])))
     fee = collateral.q4(Decimal(str(q["fee_usdc"])))
     total = collateral.q4(Decimal(str(q["total_usdc"])))
+    lp_fee = collateral.q4(fee * Decimal("0.5"))
+    agx_fee = collateral.q4(fee - lp_fee)
 
     pos = (
         await session.execute(
@@ -268,12 +269,20 @@ async def execute_amm_trade(
             pool.q_yes = collateral.q4(Decimal(str(pool.q_yes)) + sh)
         else:
             pool.q_no = collateral.q4(Decimal(str(pool.q_no)) + sh)
-        pool.pool_usdc = collateral.q4(Decimal(str(pool.pool_usdc)) + total)
+        # Only notional + lp_fee stay in pool_usdc; agx_fee is routed to AGX accounting.
+        pool.pool_usdc = collateral.q4(Decimal(str(pool.pool_usdc)) + notional + lp_fee)
     else:
         avail_shares = Decimal(str(pos.shares or 0)) - Decimal(str(pos.locked_shares or 0)) if pos else Decimal("0")
         if pos is None or avail_shares < sh:
             raise HTTPException(status_code=400, detail="Insufficient outcome shares to sell")
-        if total > Decimal(str(pool.pool_usdc)):
+        cur_q = Decimal(str(pool.q_yes if token.outcome_index == 0 else pool.q_no))
+        if sh > cur_q:
+            raise HTTPException(
+                status_code=409,
+                detail="AMM pool cannot buy back more shares than it issued",
+            )
+        pool_outflow = collateral.q4(max(Decimal("0"), notional - lp_fee))
+        if pool_outflow > Decimal(str(pool.pool_usdc)):
             raise HTTPException(status_code=409, detail="AMM pool liquidity insufficient for sell")
 
         pos.shares = collateral.q4(Decimal(str(pos.shares or 0)) - sh)
@@ -284,10 +293,8 @@ async def execute_amm_trade(
             pool.q_yes = collateral.q4(Decimal(str(pool.q_yes)) - sh)
         else:
             pool.q_no = collateral.q4(Decimal(str(pool.q_no)) - sh)
-        pool.pool_usdc = collateral.q4(Decimal(str(pool.pool_usdc)) - total)
+        pool.pool_usdc = collateral.q4(Decimal(str(pool.pool_usdc)) - pool_outflow)
 
-    lp_fee = collateral.q4(fee * Decimal("0.5"))
-    agx_fee = collateral.q4(fee - lp_fee)
     pool.fees_collected_usdc = collateral.q4(Decimal(str(pool.fees_collected_usdc)) + lp_fee)
     if agx_fee > 0:
         try:
@@ -331,7 +338,10 @@ async def redeem_lp(session: AsyncSession, market: Market, user_id: str) -> dict
     if lp is None or Decimal(str(lp.lp_shares)) <= 0:
         raise HTTPException(status_code=404, detail="No LP shares to redeem")
 
-    winning_liability = Decimal(str(pool.q_yes if market.winning_outcome_index == 0 else pool.q_no))
+    winning_liability = max(
+        Decimal("0"),
+        Decimal(str(pool.q_yes if market.winning_outcome_index == 0 else pool.q_no)),
+    )
     remaining_equity = max(Decimal("0"), Decimal(str(pool.pool_usdc)) - winning_liability)
     total_shares = Decimal(str(pool.total_lp_shares))
     user_shares = Decimal(str(lp.lp_shares))

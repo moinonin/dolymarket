@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,35 @@ from app.models.domain import Event, Market, OutcomeToken
 
 PROHIBITED_CATEGORIES = frozenset({"assassination", "violence", "illegal", "terrorism"})
 MIN_COMMUNITY_FUNDING_USDC = Decimal("10.0000")
+
+
+async def ensure_market_open_for_trading(
+    session: AsyncSession,
+    market: Market,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Enforce both ACTIVE status AND Event.end_date > now to block post-expiry sniping."""
+    if market.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Market is {market.status}; trading requires ACTIVE",
+        )
+    ev = (
+        await session.execute(select(Event).where(Event.id == market.event_id))
+    ).scalar_one_or_none()
+    if ev is not None and ev.end_date is not None:
+        end_dt = (
+            ev.end_date
+            if ev.end_date.tzinfo is not None
+            else ev.end_date.replace(tzinfo=UTC)
+        )
+        current = now or datetime.now(UTC)
+        if end_dt <= current:
+            raise HTTPException(
+                status_code=409,
+                detail="Market has passed end_date and is closed for trading",
+            )
 
 
 def contains_prohibited_content(*texts: str | None) -> str | None:

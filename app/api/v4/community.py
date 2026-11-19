@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -24,6 +24,7 @@ from app.services.markets import (
 )
 
 router = APIRouter(prefix="/api/v4/prediction/community", tags=["community-markets"])
+MAX_UNFUNDED_MARKETS_PER_USER = 5
 
 
 class ClarityPreviewRequest(BaseModel):
@@ -69,7 +70,7 @@ class CreateCommunityMarketRequest(BaseModel):
         except ValueError as exc:
             raise ValueError("Invalid ISO-8601 end_date") from exc
         if dt is None:
-            return None
+            raise ValueError("Invalid ISO-8601 end_date")
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
         if dt <= datetime.now(UTC) + timedelta(minutes=5):
@@ -153,6 +154,26 @@ async def create_community_market(
         )
 
     funded = body.initial_liquidity_usdc
+    if funded < MIN_COMMUNITY_FUNDING_USDC:
+        unfunded_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(Market)
+                .where(
+                    Market.creator_user_id == user.id,
+                    Market.tier == "COMMUNITY",
+                    Market.status == "UNFUNDED",
+                )
+            )
+        ).scalar() or 0
+        if unfunded_count >= MAX_UNFUNDED_MARKETS_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many unfunded community markets (max {MAX_UNFUNDED_MARKETS_PER_USER}); "
+                    "fund an existing market or wait for expiry before creating more"
+                ),
+            )
     slug = _slugify(body.title)
 
     try:
@@ -209,6 +230,7 @@ async def create_community_market(
             question=market.question,
             end_date=body.end_date,
             oracle_feed=market.oracle_feed,
+            outcomes=market.outcomes,
         ),
         "liquidity_funded_usdc": float(market.liquidity_funded_usdc),
         "tokens": [{"token_id": t.token_id, "symbol": t.symbol} for t in tokens],
@@ -270,6 +292,23 @@ class UpdateCommunityMarketRequest(BaseModel):
             raise ValueError("end_date must be at least 5 minutes in the future")
         return dt.isoformat()
 
+    @field_validator("oracle_threshold")
+    @classmethod
+    def _finite_threshold(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and not v.is_finite():
+            raise ValueError("must be finite")
+        return v
+
+    @field_validator("oracle_comparator")
+    @classmethod
+    def _valid_comparator(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        cleaned = v.strip()
+        if cleaned not in (">=", ">", "<=", "<"):
+            raise ValueError("comparator must be one of >=, >, <=, <")
+        return cleaned
+
 
 @router.patch("/markets/{market_id}")
 async def update_community_market(
@@ -279,7 +318,6 @@ async def update_community_market(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Edit an UNFUNDED community market created by the caller. Locked once ACTIVE."""
-    from sqlalchemy import func
     from app.models.domain import Order
     from app.services import oracle
 
@@ -339,10 +377,26 @@ async def update_community_market(
             market.oracle_feed = oracle.validate_oracle_feed(feed, allow_static=False)
         else:
             market.oracle_feed = None
+            market.oracle_threshold = None
+            market.oracle_comparator = None
     if body.oracle_threshold is not None:
         market.oracle_threshold = body.oracle_threshold
     if body.oracle_comparator is not None:
         market.oracle_comparator = body.oracle_comparator
+
+    # Enforce identical oracle_feed <-> oracle_threshold pairing as POST /markets
+    if market.oracle_feed and market.oracle_threshold is None:
+        raise HTTPException(
+            status_code=422,
+            detail="oracle_threshold is required when oracle_feed is specified",
+        )
+    if not market.oracle_feed and market.oracle_threshold is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="oracle_feed is required when oracle_threshold is specified",
+        )
+    if market.oracle_feed and not market.oracle_comparator:
+        market.oracle_comparator = ">="
 
     await session.flush()
     end_dt = event.end_date if event is not None else None

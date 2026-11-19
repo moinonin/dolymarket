@@ -138,7 +138,29 @@ async def test_community_market_unfunded_blocks_trades_until_funded(client):
     )
     assert r_edit_locked.status_code == 409
 
-    # Now order placement succeeds
+    # While end_date is in the past, order placement is also blocked (409)
+    r_order_expired = await client.post(
+        "/api/v4/prediction/orders",
+        json={
+            "market_id": created["market_id"],
+            "token_id": created["tokens"][0]["token_id"],
+            "side": "BUY",
+            "price": "0.50",
+            "amount": "5",
+        },
+        headers=funder_headers,
+    )
+    assert r_order_expired.status_code == 409
+
+    # Restore future end_date -> order placement succeeds
+    async with AsyncSessionLocal() as s:
+        await s.execute(
+            update(Event)
+            .where(Event.slug == created["slug"])
+            .values(end_date=datetime.now(UTC) + timedelta(days=30))
+        )
+        await s.commit()
+
     r_order_ok = await client.post(
         "/api/v4/prediction/orders",
         json={

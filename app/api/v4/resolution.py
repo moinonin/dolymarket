@@ -29,6 +29,8 @@ def _finite(value: Decimal) -> Decimal:
 class ProposeRequest(BaseModel):
     market_id: str = Field(min_length=1, max_length=64)
     proposed_outcome_index: int = Field(ge=0)
+    source_url: str | None = Field(default=None, max_length=2048)
+    evidence_text: str | None = Field(default=None, max_length=8000)
     evidence: dict | None = None
 
 
@@ -72,11 +74,26 @@ async def propose(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    src_url = body.source_url or (
+        body.evidence.get("source_url") if isinstance(body.evidence, dict) else None
+    )
+    ev_text = body.evidence_text or (
+        body.evidence.get("evidence_text") if isinstance(body.evidence, dict) else None
+    )
     dispute = await settlement.propose_resolution(
-        session, market, body.proposed_outcome_index
+        session,
+        market,
+        body.proposed_outcome_index,
+        source_url=str(src_url) if src_url else None,
+        evidence_text=str(ev_text) if ev_text else None,
     )
     if body.evidence is not None:
         dispute.evidence_json = body.evidence
+    elif src_url or ev_text:
+        dispute.evidence_json = {
+            **({"source_url": src_url} if src_url else {}),
+            **({"evidence_text": ev_text} if ev_text else {}),
+        }
     return {
         "market_id": market.id,
         "dispute_id": dispute.id,

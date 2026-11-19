@@ -25,6 +25,7 @@ from app.models.domain import (
     User,
 )
 from app.services import collateral, copy_engine, desk_track_record, router as smart_router
+from app.services.markets import ensure_market_open_for_trading
 from app.ws.broadcaster import broadcast_engine_events
 
 logger = logging.getLogger("app.orders")
@@ -194,11 +195,7 @@ async def submit_order(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
-    if market.status != "ACTIVE":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Market is {market.status}; trading requires ACTIVE",
-        )
+    await ensure_market_open_for_trading(session, market)
     token = (
         await session.execute(
             select(OutcomeToken).where(
@@ -362,11 +359,7 @@ async def smart_order_quote(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
-    if market.status != "ACTIVE":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Market is {market.status}; trading requires ACTIVE",
-        )
+    await ensure_market_open_for_trading(session, market)
     token = (
         await session.execute(
             select(OutcomeToken).where(
@@ -398,11 +391,7 @@ async def execute_smart_order_route(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
-    if market.status != "ACTIVE":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Market is {market.status}; trading requires ACTIVE",
-        )
+    await ensure_market_open_for_trading(session, market)
     token = (
         await session.execute(
             select(OutcomeToken).where(

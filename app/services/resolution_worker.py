@@ -174,6 +174,54 @@ async def run_resolution_tick(
                 exc_info=True,
             )
 
+    # 2b. Kalshi Rule 3: auto-propose NO for expired CLOSED qualitative markets
+    # whose resolution_criteria declares "no data -> resolve to No" and have no proposal.
+    from app.services.oracle_verifier import resolve_expired_no_data
+
+    qual_closed = (
+        await session.execute(
+            select(Market)
+            .where(
+                Market.status == "CLOSED",
+                Market.oracle_feed.is_(None),
+                Market.resolution_criteria.is_not(None),
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    for market in qual_closed:
+        existing_dispute = (
+            await session.execute(
+                select(OracleDispute).where(
+                    OracleDispute.market_id == market.id,
+                    OracleDispute.status.in_(("PROPOSED", "DISPUTED", "FINALIZED")),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_dispute is not None:
+            continue
+        default_res = resolve_expired_no_data(
+            market.resolution_criteria, has_verified_yes_evidence=False
+        )
+        if default_res is None:
+            continue
+        outcomes = [str(o).strip().upper() for o in (market.outcomes or [])]
+        if "NO" not in outcomes:
+            continue
+        no_idx = outcomes.index("NO")
+        dispute = await settlement.propose_resolution(session, market, no_idx)
+        dispute.proposer_address = "auto-oracle:kalshi_no_data_default"
+        dispute.evidence_json = default_res
+        proposed_count += 1
+        broadcasts.append(
+            {
+                "channel": "pred.status",
+                "market_id": market.id,
+                "status": market.status,
+                "proposed_outcome_index": dispute.proposed_outcome_index,
+            }
+        )
+
     # 3. Auto-finalize uncontested IN_RESOLUTION markets past dispute_deadline
     in_res_markets = (
         await session.execute(

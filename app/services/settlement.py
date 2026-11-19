@@ -12,9 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import Event, Market, OracleDispute, OutcomeToken, Position, User
+from app.services.markets import ensure_market_open_for_trading
 
 DISPUTE_WINDOW = timedelta(hours=2)
 PROPOSAL_BOND = Decimal(50)
+MIN_DISPUTE_BOND = Decimal("100")
 
 
 def _now() -> datetime:
@@ -124,12 +126,21 @@ async def propose_resolution(
 async def dispute_proposal(
     session: AsyncSession, market: Market, counter_bond: Decimal
 ) -> OracleDispute:
+    locked_market = (
+        await session.execute(
+            select(Market).where(Market.id == market.id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_market is not None:
+        market = locked_market
     dispute = (
         await session.execute(
-            select(OracleDispute).where(
+            select(OracleDispute)
+            .where(
                 OracleDispute.market_id == market.id,
                 OracleDispute.status.in_(("PROPOSED",)),
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if dispute is None:
@@ -144,8 +155,12 @@ async def dispute_proposal(
         deadline = deadline.replace(tzinfo=UTC)
     if _now() > deadline:
         raise HTTPException(status_code=409, detail="Dispute window has expired")
-    if counter_bond < dispute.bond_amount:
-        raise HTTPException(status_code=400, detail="Counter-bond below proposal bond")
+    min_required = max(MIN_DISPUTE_BOND, Decimal(str(dispute.bond_amount)))
+    if counter_bond < min_required:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Counter-bond below minimum required ({min_required} AGX)",
+        )
     dispute.status = "DISPUTED"
     market.status = "DISPUTED"
     return dispute
@@ -195,8 +210,7 @@ async def split_position(
 
     Locks collateral and mints one share of each outcome for the caller.
     """
-    if market.status != "ACTIVE":
-        raise HTTPException(status_code=409, detail="Market is not ACTIVE for splitting")
+    await ensure_market_open_for_trading(session, market)
     if shares <= 0:
         raise HTTPException(status_code=400, detail="Shares must be positive")
 
@@ -239,6 +253,11 @@ async def merge_positions(
     session: AsyncSession, user: User, market: Market, shares: Decimal
 ) -> Decimal:
     """Atomic CTF merge: 1 share of every outcome -> 1.00 USDC collateral."""
+    if market.status in ("UNFUNDED", "EXPIRED"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot merge positions on {market.status} market",
+        )
     if shares <= 0:
         raise HTTPException(status_code=400, detail="Shares must be positive")
     tokens = (
