@@ -194,6 +194,11 @@ async def submit_order(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    if market.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Market is {market.status}; trading requires ACTIVE",
+        )
     token = (
         await session.execute(
             select(OutcomeToken).where(
@@ -216,25 +221,26 @@ async def submit_order(
         if desk.status != "ACTIVE":
             raise HTTPException(status_code=409, detail="DESK_NOT_ACTIVE")
     else:
-        # Untagged personal order: reject if the caller's ACTIVE desk holds a
-        # non-zero position in this market (anti front-running).
-        caller_desk = (
+        # Untagged personal order: reject if any of the caller's ACTIVE desks
+        # hold a non-zero position in this market (anti front-running).
+        caller_desks = (
             await session.execute(
                 select(Desk).where(
                     Desk.owner_user_id == user.id, Desk.status == "ACTIVE"
                 )
             )
-        ).scalar_one_or_none()
-        if caller_desk is not None:
-            pos = (
+        ).scalars().all()
+        if caller_desks:
+            desk_ids = [d.id for d in caller_desks]
+            positions = (
                 await session.execute(
                     select(DeskPosition).where(
-                        DeskPosition.desk_id == caller_desk.id,
+                        DeskPosition.desk_id.in_(desk_ids),
                         DeskPosition.market_id == market.id,
                     )
                 )
-            ).scalar_one_or_none()
-            if pos is not None and Decimal(str(pos.shares)) != 0:
+            ).scalars().all()
+            if any(Decimal(str(p.shares)) != 0 for p in positions):
                 raise HTTPException(status_code=409, detail="DESK_MARKET_CONFLICT")
 
     engine = MatchingEngine(broadcaster=broadcast_engine_events)
@@ -356,6 +362,11 @@ async def smart_order_quote(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    if market.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Market is {market.status}; trading requires ACTIVE",
+        )
     token = (
         await session.execute(
             select(OutcomeToken).where(
@@ -387,6 +398,11 @@ async def execute_smart_order_route(
     ).scalar_one_or_none()
     if market is None:
         raise HTTPException(status_code=404, detail="Market not found")
+    if market.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Market is {market.status}; trading requires ACTIVE",
+        )
     token = (
         await session.execute(
             select(OutcomeToken).where(

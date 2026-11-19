@@ -203,7 +203,7 @@ async def _seed_desks(session, trader, mm) -> None:
     await session.flush()
 
     # A resolved market backing the macro desk's track record.
-    event = Event(slug="seed-resolved-macro", title="Resolved Macro", category="Macro")
+    event = Event(slug="seed-resolved-macro", title="Resolved Macro", category="Macro", status="RESOLVED")
     session.add(event)
     await session.flush()
     market = Market(

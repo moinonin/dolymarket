@@ -164,7 +164,10 @@ export default function TradeTicket({
       ? ((amountNum - cost) / cost) * 100
       : null
 
+  const isMarketActive = market.status === 'ACTIVE'
+
   function submit() {
+    if (!isMarketActive) return
     if (!user) {
       push('Sign in first to place orders.', 'error')
       return
@@ -322,10 +325,17 @@ export default function TradeTicket({
         </div>
       )}
 
+      {!isMarketActive && (
+        <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+          Market is <span className="font-semibold text-white">{market.status.replace(/_/g, ' ').toLowerCase()}</span> — trading is disabled.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-1.5">
         <button
           onClick={() => setSide('BUY')}
-          className={`rounded-lg py-2 text-sm font-bold transition ${
+          disabled={!isMarketActive}
+          className={`rounded-lg py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
             side === 'BUY'
               ? 'bg-emerald-500 text-slate-950'
               : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
@@ -335,7 +345,8 @@ export default function TradeTicket({
         </button>
         <button
           onClick={() => setSide('SELL')}
-          className={`rounded-lg py-2 text-sm font-bold transition ${
+          disabled={!isMarketActive}
+          className={`rounded-lg py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
             side === 'SELL'
               ? 'bg-rose-500 text-slate-950'
               : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
@@ -527,12 +538,18 @@ export default function TradeTicket({
 
       <button
         onClick={submit}
-        disabled={submitting || warnings.length > 0 || !user}
+        disabled={!isMarketActive || submitting || warnings.length > 0 || !user}
         className={`mt-4 w-full rounded-lg py-2.5 text-sm font-bold text-slate-950 transition disabled:cursor-not-allowed disabled:opacity-40 ${
           side === 'BUY' ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-rose-500 hover:bg-rose-400'
         }`}
       >
-        {submitting ? 'Submitting…' : `${side === 'BUY' ? 'Buy' : 'Sell'} ${token.symbol}`}
+        {!isMarketActive
+          ? market.status === 'RESOLVED'
+            ? 'Market Resolved'
+            : 'Trading Closed'
+          : submitting
+            ? 'Submitting…'
+            : `${side === 'BUY' ? 'Buy' : 'Sell'} ${token.symbol}`}
       </button>
       {!user && <p className="mt-2 text-center text-[11px] text-slate-500">Sign in to place orders</p>}
       <p className="mt-2 text-center text-[10px] text-slate-600">
