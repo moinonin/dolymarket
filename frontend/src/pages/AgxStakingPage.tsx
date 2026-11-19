@@ -27,6 +27,7 @@ import {
 } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import { useToast } from '../context/toast'
+import { bustSwr, readSwr, writeSwr } from '../api/swrCache'
 import { Skeleton, StatusPill } from '../components/ui'
 
 interface WalletState {
@@ -84,11 +85,14 @@ export default function AgxStakingPage() {
   const { user, openAuth } = useAuth()
   const { push } = useToast()
 
-  const [wallet, setWallet] = useState<WalletState | null>(null)
-  const [tiers, setTiers] = useState<AgxTiersResponse | null>(null)
-  const [stats, setStats] = useState<AgxStats | null>(null)
-  const [epochs, setEpochs] = useState<AgxRewardEpoch[]>([])
-  const [loading, setLoading] = useState(true)
+  const cachedPub = readSwr<{ tiers: AgxTiersResponse; stats: AgxStats; epochs: AgxRewardEpoch[] }>('agx:public')
+  const cachedWallet = user ? readSwr<WalletState>(`agx:wallet:${user.id}`, 2 * 60 * 1000) : null
+
+  const [wallet, setWallet] = useState<WalletState | null>(cachedWallet?.data ?? null)
+  const [tiers, setTiers] = useState<AgxTiersResponse | null>(cachedPub?.data.tiers ?? null)
+  const [stats, setStats] = useState<AgxStats | null>(cachedPub?.data.stats ?? null)
+  const [epochs, setEpochs] = useState<AgxRewardEpoch[]>(cachedPub?.data.epochs ?? [])
+  const [loading, setLoading] = useState(!cachedPub)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [amount, setAmount] = useState('')
@@ -100,36 +104,48 @@ export default function AgxStakingPage() {
   }, [])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const pubHit = readSwr<{ tiers: AgxTiersResponse; stats: AgxStats; epochs: AgxRewardEpoch[] }>('agx:public')
+    if (!pubHit) setLoading(true)
     setError(null)
     try {
-      const [tiersRes, statsRes, epochsRes] = await Promise.all([
+      const pubPromise = Promise.all([
         api.getAgxTiers(),
         api.getAgxStats(),
         api.getAgxEpochs(20),
       ])
+      const walletPromise = user
+        ? Promise.all([
+            api.getAgxBalance(),
+            api.getAgxStakes(),
+            api.getAgxRewardHistory(),
+          ])
+        : Promise.resolve(null)
+
+      const [[tiersRes, statsRes, epochsRes], walletRes] = await Promise.all([
+        pubPromise,
+        walletPromise,
+      ])
       setTiers(tiersRes)
       setStats(statsRes)
       setEpochs(epochsRes.epochs)
+      writeSwr('agx:public', { tiers: tiersRes, stats: statsRes, epochs: epochsRes.epochs })
 
-      if (user) {
-        const [balance, stakesRes, history] = await Promise.all([
-          api.getAgxBalance(),
-          api.getAgxStakes(),
-          api.getAgxRewardHistory(),
-        ])
-        setWallet({
+      if (user && walletRes) {
+        const [balance, stakesRes, history] = walletRes
+        const nextWallet: WalletState = {
           balance,
           stakes: stakesRes.stakes,
           cooldowns: stakesRes.cooldowns,
           rewards: history.rewards,
           rewardTotal: history.total,
-        })
+        }
+        setWallet(nextWallet)
+        writeSwr(`agx:wallet:${user.id}`, nextWallet)
       } else {
         setWallet(null)
       }
     } catch (err: any) {
-      setError(err?.message || 'Could not load AGX data')
+      if (!pubHit) setError(err?.message || 'Could not load AGX data')
     } finally {
       setLoading(false)
     }
@@ -143,6 +159,7 @@ export default function AgxStakingPage() {
     setBusy(key)
     try {
       await fn()
+      bustSwr('agx:')
       push(success, 'info')
       await load()
     } catch {

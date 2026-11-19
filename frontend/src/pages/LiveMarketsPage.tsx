@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, KeyRound, RefreshCw, WifiOff } from 'lucide-react'
 import { api, type LiveAuthStatus, type LiveMarket } from '../api/client'
 import { Skeleton } from '../components/ui'
+import { readSwr, writeSwr } from '../api/swrCache'
 
 const REFRESH_MS = 20000
 const PAGE_SIZE = 50
@@ -25,15 +26,16 @@ export default function LiveMarketsPage({
 }: {
   onOpenMarket: (marketId: string) => void
 }) {
-  const [markets, setMarkets] = useState<LiveMarket[] | null>(null)
-  const [loading, setLoading] = useState(true)
+  const initialCache = readSwr<{ markets: LiveMarket[]; hasMore: boolean }>('live_markets:active:0')
+  const [markets, setMarkets] = useState<LiveMarket[] | null>(initialCache?.data.markets ?? null)
+  const [loading, setLoading] = useState(!initialCache)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(initialCache?.ts ?? null)
   const [status, setStatus] = useState('active')
   const [lang, setLang] = useState<LangFilter>('all')
   const [offset, setOffset] = useState(0)
-  const [hasMore, setHasMore] = useState(false)
+  const [hasMore, setHasMore] = useState(initialCache?.data.hasMore ?? false)
   const [auth, setAuth] = useState<LiveAuthStatus | null>(null)
 
   const loadAuth = useCallback(async () => {
@@ -51,14 +53,25 @@ export default function LiveMarketsPage({
   }, [loadAuth])
 
   const load = useCallback(async () => {
+    const cacheKey = `live_markets:${status}:${offset}`
+    const cached = readSwr<{ markets: LiveMarket[]; hasMore: boolean }>(cacheKey)
+    if (cached) {
+      setMarkets(cached.data.markets)
+      setHasMore(cached.data.hasMore)
+      setUpdatedAt(cached.ts)
+      setLoading(false)
+    }
     try {
       const res = await api.getLiveMarkets({ status, limit: PAGE_SIZE, offset })
-      setMarkets(res.markets || [])
-      setHasMore(Boolean(res.has_more))
+      const nextMarkets = res.markets || []
+      const nextHasMore = Boolean(res.has_more)
+      setMarkets(nextMarkets)
+      setHasMore(nextHasMore)
       setUpdatedAt(Date.now())
       setError(null)
+      writeSwr(cacheKey, { markets: nextMarkets, hasMore: nextHasMore })
     } catch (err: any) {
-      setError(err?.message || 'Could not reach the live feed')
+      if (!cached) setError(err?.message || 'Could not reach the live feed')
     } finally {
       setLoading(false)
     }

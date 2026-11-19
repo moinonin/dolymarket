@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Activity, Loader2, ShieldCheck, TrendingUp } from 'lucide-react'
 import { api } from '../api/client'
+import { bustSwr, readSwr, writeSwr } from '../api/swrCache'
 import { Skeleton, StatusPill } from '../components/ui'
 import { useAuth } from '../auth/AuthProvider'
 import { useToast } from '../context/toast'
@@ -23,21 +24,30 @@ interface DeskRow {
 export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => void }) {
   const { user, openAuth } = useAuth()
   const { push } = useToast()
-  const [desks, setDesks] = useState<DeskRow[] | null>(null)
   const [sort, setSort] = useState('roi_pct')
+  const [desks, setDesks] = useState<DeskRow[] | null>(
+    () => readSwr<DeskRow[]>('desks:roi_pct')?.data ?? null
+  )
   const [error, setError] = useState<string | null>(null)
   const [myDesk, setMyDesk] = useState<any>(null)
   const [creating, setCreating] = useState(false)
   const fetchedMyDesk = React.useRef(false)
 
   async function load() {
+    const cacheKey = `desks:${sort}`
+    const cached = readSwr<DeskRow[]>(cacheKey)
+    if (cached) setDesks(cached.data)
     try {
       setError(null)
       const res = await api.listDesks({ sort, limit: 100 })
-      setDesks(res.desks as DeskRow[])
+      const rows = res.desks as DeskRow[]
+      setDesks(rows)
+      writeSwr(cacheKey, rows)
     } catch (err: any) {
-      setError(err?.message || 'Could not load desks')
-      setDesks([])
+      if (!cached) {
+        setError(err?.message || 'Could not load desks')
+        setDesks([])
+      }
     }
   }
 
@@ -60,6 +70,7 @@ export default function DesksPage({ onOpenDesk }: { onOpenDesk: (id: string) => 
     setCreating(true)
     try {
       await api.createDesk({ name, slug })
+      bustSwr('desks:')
       push('Desk created. Add fills, then submit it for review.', 'info')
       const r = await api.getMyDesk()
       setMyDesk(r.desk)
